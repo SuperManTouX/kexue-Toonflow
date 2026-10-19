@@ -202,12 +202,12 @@ export function useNodeAi() {
   }
 
   async function getSuanliMediaModels(mediaType: "image" | "video" | "audio", signal?: AbortSignal) {
-    const models = await readModels<{ modelRef: string; modelId: string; label: string; platformCode: string; platformName: string }>("/api/suanli/models", requestSignal(signal)).catch(error => {
+    const models = await readModels<{ modelRef: string; modelId: string; label: string; platformCode: string; platformName: string; params?: unknown }>("/api/suanli/models", requestSignal(signal)).catch(error => {
       if ((error as { status?: number }).status === 401) return [];
       throw error;
     });
     const platformCode = { image: "ai_painting_talk", video: "ai_video_talk", audio: "ai_music_talk" }[mediaType];
-    return models.filter(model => model.platformCode === platformCode).map(model => ({
+    return models.filter(model => model.platformCode === platformCode && Array.isArray(model.params)).map(model => ({
       providerId: "suanli",
       providerLabel: model.platformName || "算力中台",
       modelId: model.modelRef,

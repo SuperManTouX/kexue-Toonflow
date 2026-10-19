@@ -40,7 +40,7 @@
             :disabled="busy"
             placeholder="选择模型"
             aria-label="音频生成模型"
-            noDataText="算力中台当前没有音频模型"
+            noDataText="算力中台当前没有可用的音频模型"
             placement="top-start"
             @visible-change="visible => visible && loadModels().catch(error => showNodeError(error, '模型读取失败'))">
             <template #prefix><icon-music-bolt :size="17" /></template>

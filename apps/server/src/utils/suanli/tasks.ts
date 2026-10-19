@@ -17,6 +17,9 @@ const taskRecordSchema = z.object({
   createdAt: z.number().finite(),
 });
 const taskStatusSchema = z.enum(["queued", "processing", "completed", "failed", "cancelled", "timeout"]);
+const taskVendorRawSchema = z.object({
+  eventData: z.object({ results: z.unknown().optional() }).passthrough(),
+}).passthrough();
 const taskEnvelopeSchema = z.object({
   code: z.number().int(),
   data: z.object({
@@ -26,6 +29,7 @@ const taskEnvelopeSchema = z.object({
     position: z.number().finite().optional(),
     result: z.unknown().optional(),
     error: z.unknown().optional(),
+    vendor_raw: z.unknown().optional(),
     created_at: z.string().max(128).optional(),
     updated_at: z.string().max(128).optional(),
   }).passthrough(),
@@ -166,7 +170,10 @@ function validateTaskBody(params: SuanliParam[], input: Record<string, unknown>,
 function taskData(body: unknown) {
   const parsed = taskEnvelopeSchema.safeParse(body);
   if (!parsed.success || parsed.data.code !== 0) throw failure("算力中台返回的任务数据无效", 502);
-  return parsed.data.data;
+  const data = parsed.data.data;
+  const vendorRaw = taskVendorRawSchema.safeParse(data.vendor_raw);
+  const result = data.result ?? (vendorRaw.success ? vendorRaw.data.eventData.results : undefined);
+  return { ...data, ...(result === undefined ? {} : { result }) };
 }
 
 function cleanTaskError(value: unknown) {
