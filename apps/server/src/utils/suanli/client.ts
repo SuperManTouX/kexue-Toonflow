@@ -16,9 +16,15 @@ function serviceUrl(value: string, name: string, allowPath = false) {
   return url;
 }
 
+function suanliApiBase() {
+  const base = serviceUrl(process.env.SUANLI_BASE_URL ?? "", "SUANLI_BASE_URL", true);
+  const basePath = base.pathname.replace(/\/+$/, "");
+  if (basePath && basePath !== "/suanli") throw failure("SUANLI_BASE_URL 必须配置为域名或 /suanli 路径", 500);
+  return `${base.origin}/suanli/v1`;
+}
+
 function suanliUrl(path: string) {
-  const base = serviceUrl(process.env.SUANLI_BASE_URL ?? "", "SUANLI_BASE_URL");
-  return new URL(`/suanli/v1/${path.replace(/^\/+/, "")}`, base.origin);
+  return new URL(`${suanliApiBase()}/${path.replace(/^\/+/, "")}`);
 }
 
 function aigcUrl(path: string) {
@@ -34,8 +40,7 @@ function suanliToken() {
 }
 
 export function getSuanliRuntimeConfig() {
-  const base = serviceUrl(process.env.SUANLI_BASE_URL ?? "", "SUANLI_BASE_URL");
-  return { apiUrl: `${base.origin}/suanli/v1`, apiKey: suanliToken() };
+  return { apiUrl: suanliApiBase(), apiKey: suanliToken() };
 }
 
 async function readJson(response: Response, service: string) {

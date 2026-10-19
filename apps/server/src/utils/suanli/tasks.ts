@@ -158,6 +158,9 @@ function validateTaskBody(params: SuanliParam[], input: Record<string, unknown>,
         || (field.dimension.width?.max !== undefined && width > field.dimension.width.max)
         || (field.dimension.height?.min !== undefined && height < field.dimension.height.min)
         || (field.dimension.height?.max !== undefined && height > field.dimension.height.max)) invalidField(field);
+    } else if (field.ui === "dimensionWidth" || field.ui === "dimensionHeight") {
+      if (typeof value !== "number" || !Number.isSafeInteger(value)
+        || (field.min !== undefined && value < field.min) || (field.max !== undefined && value > field.max)) invalidField(field);
     } else if (field.ui === "imageUpload") {
       if (!Array.isArray(value) || value.length > field.maxCount || (field.required && !value.length)
         || !value.every(url => typeof url === "string" && url.length <= 4096 && isOwnedSuanliImageUrl(url, userId))) invalidField(field);
