@@ -38,7 +38,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onScopeDispose, reactive, ref, watch } from "vue";
+import { computed, onScopeDispose, reactive, ref, toRaw, watch } from "vue";
 import { ElButton, ElForm, ElFormItem, ElImage, ElInput, ElInputNumber, ElOption, ElSelect } from "element-plus";
 import { useNodeAi, type NodeSuanliParam } from "@toonflow/nodes-scaffold/nodeAi";
 
@@ -61,7 +61,7 @@ function initializeValues(fields: NodeSuanliParam[]) {
   for (const key of Object.keys(values)) delete values[key];
   const restored = props.modelValue?.modelRef === props.modelRef ? props.modelValue.values : {};
   for (const field of fields) {
-    if (Object.hasOwn(restored, field.name)) values[field.name] = structuredClone(restored[field.name]);
+    if (Object.hasOwn(restored, field.name)) values[field.name] = structuredClone(toRaw(restored[field.name]));
     else if (field.default !== undefined) values[field.name] = structuredClone(field.default);
   }
   fieldErrors.value = {};
@@ -69,7 +69,7 @@ function initializeValues(fields: NodeSuanliParam[]) {
 }
 
 function emitValues() {
-  emit("update:modelValue", { modelRef: props.modelRef, values: structuredClone(values) });
+  emit("update:modelValue", { modelRef: props.modelRef, values: structuredClone(toRaw(values)) });
 }
 
 async function loadTemplate(modelRef: string, signal: AbortSignal) {
