@@ -12,6 +12,62 @@ function contentHash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+function redactUrl(value: string) {
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    for (const key of url.searchParams.keys()) {
+      if (/key|token|secret|auth|signature|credential/i.test(key)) url.searchParams.set(key, "[redacted]");
+    }
+    return url.href;
+  } catch {
+    return value;
+  }
+}
+
+function safeHeaders(headers: Headers) {
+  return Object.fromEntries([...headers].map(([name, value]) => [
+    name,
+    /authorization|cookie|api[-_]?key|token|secret|session|user|tenant/i.test(name) ? "[redacted]" : value,
+  ]));
+}
+
+function safeErrorMessage(value: string) {
+  return value
+    .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(/((?:api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|authorization)\s*[:=]\s*)["']?[^\s,"'&]+["']?/gi, "$1[redacted]");
+}
+
+function getRequestInfo(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
+  const headers = new Headers(input instanceof Request ? input.headers : undefined);
+  new Headers(init?.headers).forEach((value, name) => headers.set(name, value));
+  return {
+    url: redactUrl(input instanceof Request ? input.url : String(input)),
+    method: init?.method ?? (input instanceof Request ? input.method : "GET"),
+    headers: safeHeaders(headers),
+    bodyBytes: headers.get("content-length") ?? undefined,
+  };
+}
+
+async function logUpstreamFailure(
+  request: ReturnType<typeof getRequestInfo>,
+  response?: Response,
+  error?: unknown,
+) {
+  const body = response ? safeErrorMessage(await response.clone().text().catch(cause => `[响应体读取失败: ${cause instanceof Error ? cause.message : String(cause)}]`)) : undefined;
+  console.error("Agent 上游请求失败", {
+    request,
+    response: response ? {
+      status: response.status,
+      statusText: response.statusText,
+      headers: safeHeaders(response.headers),
+      body,
+    } : undefined,
+    error: error instanceof Error ? { name: error.name, message: safeErrorMessage(error.message) } : error === undefined ? undefined : safeErrorMessage(String(error)),
+  });
+}
+
 export function configureAgentRequests(session: AgentSession, limits?: { maxRequestImageBytes?: number; maxRequestBytes?: number }) {
   for (const value of Object.values(limits ?? {})) {
     if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) throw new Error("图片请求预算必须为正安全整数");
@@ -247,7 +303,15 @@ export function configureAgentRequests(session: AgentSession, limits?: { maxRequ
                   status: 413, headers: { "content-type": "application/json", "x-should-retry": "false" },
                 });
               }
-              const response = await request(input, init);
+              const requestInfo = getRequestInfo(input, init);
+              let response: Response;
+              try {
+                response = await request(input, init);
+              } catch (error) {
+                await logUpstreamFailure(requestInfo, undefined, error);
+                throw error;
+              }
+              if (!response.ok) await logUpstreamFailure(requestInfo, response);
               if (response.status !== 413) return response;
               http413 = true;
               const headers = new Headers(response.headers);
