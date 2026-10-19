@@ -33,6 +33,7 @@ export type NodeSuanliParam =
   | (NodeSuanliParamBase & { ui: "quantity"; options: number[] })
   | (NodeSuanliParamBase & { ui: "select"; options: (string | number)[] })
   | (NodeSuanliParamBase & { ui: "dimension"; dimension: { width?: { min?: number; max?: number }; height?: { min?: number; max?: number }; separator: string } })
+  | (NodeSuanliParamBase & { ui: "dimensionWidth" | "dimensionHeight"; min?: number; max?: number })
   | (NodeSuanliParamBase & { ui: "imageUpload"; maxCount: number });
 export type NodeSuanliModelConfig = { params: NodeSuanliParam[]; imageUploadAvailable: boolean };
 export type NodeImageRequest = {

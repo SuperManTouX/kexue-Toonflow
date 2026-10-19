@@ -20,6 +20,7 @@ export const suanliParamSchema = z.discriminatedUnion("ui", [
       separator: z.string().min(1).max(8),
     }),
   }),
+  z.object({ ...fieldBase, ui: z.enum(["dimensionWidth", "dimensionHeight"]), min: z.number().finite().optional(), max: z.number().finite().optional() }),
   z.object({ ...fieldBase, ui: z.literal("quantity"), options: z.array(z.number().finite()).min(1).max(100) }),
   z.object({ ...fieldBase, ui: z.literal("resolution"), options: z.array(z.string().min(1)).min(1).max(100) }),
   z.object({ ...fieldBase, ui: z.literal("select"), options: z.array(z.union([z.string(), z.number().finite()])).min(1).max(100) }),

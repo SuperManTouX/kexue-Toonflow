@@ -15,6 +15,7 @@
             <span aria-hidden="true">{{ field.dimension.separator }}</span>
             <el-input-number :modelValue="getDimensionPart(field, 'height')" :min="field.dimension.height?.min ?? 1" :max="field.dimension.height?.max" :disabled="disabled" controlsPosition="right" aria-label="高度" @update:modelValue="setDimensionPart(field, 'height', $event)" />
           </div>
+          <el-input-number v-else-if="field.ui === 'dimensionWidth' || field.ui === 'dimensionHeight'" :modelValue="numberValue(field)" :min="field.min" :max="field.max" :precision="0" :disabled="disabled" controlsPosition="right" :aria-label="field.label" class="fieldControl" @update:modelValue="setFieldValue(field.name, $event)" />
           <div v-else-if="field.ui === 'imageUpload'" class="imageField">
             <label class="imagePicker" :class="{ disabled: disabled || !imageUploadAvailable || uploadingField === field.name }">
               <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" :multiple="field.maxCount > 1" :disabled="disabled || !imageUploadAvailable || uploadingField === field.name" @change="uploadImages(field, $event)" />
@@ -100,6 +101,10 @@ function optionValue(field: Extract<NodeSuanliParam, { ui: "proportion" | "resol
   return typeof value === "string" || typeof value === "number" ? value : "";
 }
 
+function numberValue(field: Extract<NodeSuanliParam, { ui: "dimensionWidth" | "dimensionHeight" }>) {
+  return typeof values[field.name] === "number" ? values[field.name] as number : undefined;
+}
+
 function setFieldValue(name: string, value: unknown) {
   values[name] = value;
   fieldErrors.value[name] = "";
@@ -167,6 +172,9 @@ function validateValues() {
         || (field.dimension.width?.max !== undefined && width > field.dimension.width.max)
         || (field.dimension.height?.min !== undefined && height < field.dimension.height.min)
         || (field.dimension.height?.max !== undefined && height > field.dimension.height.max)) errors[field.name] = "尺寸超出允许范围";
+    } else if (field.ui === "dimensionWidth" || field.ui === "dimensionHeight") {
+      if (typeof value !== "number" || !Number.isSafeInteger(value)
+        || (field.min !== undefined && value < field.min) || (field.max !== undefined && value > field.max)) errors[field.name] = "尺寸超出允许范围";
     } else if (field.ui === "imageUpload") {
       if (!Array.isArray(value) || value.length > field.maxCount || value.some(url => typeof url !== "string")) errors[field.name] = "图片数量无效";
     }
