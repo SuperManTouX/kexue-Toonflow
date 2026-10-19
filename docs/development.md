@@ -76,10 +76,10 @@ bun install
 bun run dev:plugins
 
 # 同时启动 Web 与业务 Server
-bun run dev
+EXTERNAL_TOKEN_VERIFICATION_URL=https://sxwz.xueai.art/api/login/validateToken bun run dev
 ```
 
-打开 `http://localhost:5173`。独立 Server 默认监听 `3000`，Web 开发服务会代理 API 请求。`dev` 不会自动构建或同步插件，因此首次启动需要上面的 `dev:plugins` 步骤。
+Windows PowerShell 可先执行 `$env:EXTERNAL_TOKEN_VERIFICATION_URL="https://sxwz.xueai.art/api/login/validateToken"`，再运行 `bun run dev`。打开 `http://localhost:5173`。独立 Server 默认监听 `3000`，Web 开发服务会代理 API 请求。`dev` 会并行启动 Web 与 Server，并在其中一个进程退出时停止另一个；它不自动构建或同步插件，因此首次启动需要上面的 `dev:plugins` 步骤。也可把验证地址写入仓库根目录 `.env`。
 
 ### 常用命令
 
@@ -103,6 +103,23 @@ bun run dev
 | `bun run --cwd packages/i18n extract` | 手动抽取中文源文案和来源索引，不生成其他语言的译文。 |
 
 构建与类型检查分别执行。新增、移动或删除业务接口后，在 `apps/server` 执行 `bun run routes` 生成路由。
+
+### Web 多用户登录与数据目录
+
+独立 Web Server 使用 SXWZ 外部 Token 登录。启动前配置 SXWZ 提供的完整 Token 验证地址；该地址不能由浏览器传入：
+
+```sh
+EXTERNAL_TOKEN_VERIFICATION_URL=https://sxwz.xueai.art/api/login/validateToken \
+TOONFLOW_PUBLIC_URL=https://toonflow.example.com \
+TOONFLOW_DATA_DIR=/srv/toonflow-web-data \
+bun run start:server
+```
+
+生产环境的 `TOONFLOW_PUBLIC_URL` 填反向代理对外提供的 HTTPS 根地址，不含路径和查询参数。使用本机开发地址时可省略它。用户由 SXWZ 平台进入独立的 `/token-login` 前端路由并携带 `externaltoken` query；服务会先清除浏览器地址栏中的参数，再由后端验证并建立 7 天本地会话。网页没有单独的账号密码登录入口。
+
+反向代理和前置网关不得记录首个页面请求的查询参数，也不要把它们写入分析日志；前端清除地址栏不能移除已经写入代理日志的 Token。Web 数据保存在配置的数据根目录中：身份和会话位于 `auth/`，每个用户的数据位于 `users/<用户ID>/`，部署者提供的共享资源位于 `shared/`。Web 不导入旧配置、项目、工作区或浏览器缓存；旧文件不会被自动迁移或用作回退数据。建议把 Web 多用户服务指向专用持久数据目录。
+
+Web 多用户服务按单进程运行。部署和重启时应保留同一 `TOONFLOW_DATA_DIR`，其中的认证密钥用于保持现有用户身份及会话映射。本节只适用于独立 Web 服务；桌面端和移动端沿用各自原有入口与数据行为。
 
 ### 多语言维护
 
