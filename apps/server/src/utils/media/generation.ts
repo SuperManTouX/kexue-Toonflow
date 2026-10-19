@@ -161,6 +161,38 @@ export async function getMediaPrice(directory: string | undefined, mediaType: "i
   return getProviderPrice(provider, prepared);
 }
 
+export async function saveMediaAssets(directory: string, outputDirectory: string, mediaType: "image" | "video" | "audio", assets: MediaAsset[], signal?: AbortSignal): Promise<GeneratedMedia[]> {
+  signal?.throwIfAborted();
+  if (!Array.isArray(assets) || !assets.length) invalid("供应商未返回生成结果");
+  const root = await realpath(directory);
+  await resolveWorkspacePath(root, outputDirectory, true);
+  const written: string[] = [];
+  const result: GeneratedMedia[] = [];
+  try {
+    for (const asset of assets) {
+      signal?.throwIfAborted();
+      const { bytes, mimeType } = await assetBytes(asset, mediaType, signal);
+      signal?.throwIfAborted();
+      const output = await resolveWorkspacePath(root, outputDirectory, true);
+      const release = lockWorkspaceFiles([output.path]);
+      try {
+        await mkdir(output.path, { recursive: true });
+        const file = join(outputDirectory, `${mediaType}${crypto.randomUUID()}.${mediaExtensions[mimeType]}`);
+        const { path } = await resolveWorkspacePath(root, file);
+        signal?.throwIfAborted();
+        await writeWorkspaceFile(path, bytes, true);
+        written.push(path);
+        result.push({ path: relative(root, path).replace(/\\/g, "/"), mimeType, mediaType });
+      } finally { release(); }
+    }
+    signal?.throwIfAborted();
+    return result;
+  } catch (error) {
+    await Promise.all(written.map(path => unlink(path).catch((cause: NodeJS.ErrnoException) => { if (cause.code !== "ENOENT") throw cause; })));
+    throw error;
+  }
+}
+
 export async function generateMedia(
   cwd: string,
   mediaType: "image" | "video" | "audio",
@@ -180,35 +212,11 @@ export async function generateMedia(
   const prepared = await prepareRequest(directory, mediaType, request, readReference, signal);
   signal?.throwIfAborted();
   const finish = beginGeneration(provider);
-  const written: string[] = [];
-  const result: GeneratedMedia[] = [];
   try {
     signal?.throwIfAborted();
     const { type, ...parameters } = prepared;
     const assets = type === "audio" ? await provider.generateAudio!(parameters as AudioRequest)
       : type === "image" ? await provider.generateImage!(parameters as ImageRequest) : await provider.generateVideo!(parameters as VideoRequest);
-    if (!Array.isArray(assets) || !assets.length) invalid("供应商未返回生成结果");
-    for (const asset of assets) {
-      signal?.throwIfAborted();
-      const { bytes, mimeType } = await assetBytes(asset, mediaType, signal);
-      signal?.throwIfAborted();
-      const output = await resolveWorkspacePath(directory, outputDirectory, true);
-      const release = lockWorkspaceFiles([output.path]);
-      try {
-        await mkdir(output.path, { recursive: true });
-        const file = join(outputDirectory, `${mediaType}${crypto.randomUUID()}.${mediaExtensions[mimeType]}`);
-        const { path } = await resolveWorkspacePath(directory, file);
-        signal?.throwIfAborted();
-        await writeWorkspaceFile(path, bytes, true);
-        written.push(path);
-        result.push({ path: relative(directory, path).replace(/\\/g, "/"), mimeType, mediaType });
-      } finally { release(); }
-    }
-    signal?.throwIfAborted();
-    return result;
-  } catch (err) {
-    // ACT: 只回滚本次创建的文件，保留目录中已有的节点资源。
-    await Promise.all(written.map(path => unlink(path).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; })));
-    throw err;
+    return await saveMediaAssets(directory, outputDirectory, mediaType, assets, signal);
   } finally { finish(); }
 }

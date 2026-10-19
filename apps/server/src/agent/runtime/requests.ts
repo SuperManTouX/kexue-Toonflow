@@ -7,6 +7,8 @@ import type { AgentImageReference } from "@/agent/runtime/imageAttachments";
 import { getRequestFiles, type RequestFile } from "@/utils/ai/requestFiles";
 import { createFileTransport, FileRequestLimitError } from "@/utils/ai/files";
 import getConfig from "@/utils/conf";
+import { getCurrentUser } from "@/lib/userContext";
+import { getSuanliModelForRuntime } from "./model";
 
 function contentHash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -54,8 +56,11 @@ async function logUpstreamFailure(
   request: ReturnType<typeof getRequestInfo>,
   response?: Response,
   error?: unknown,
+  includeResponseBody = true,
 ) {
-  const body = response ? safeErrorMessage(await response.clone().text().catch(cause => `[响应体读取失败: ${cause instanceof Error ? cause.message : String(cause)}]`)) : undefined;
+  const body = response && includeResponseBody
+    ? safeErrorMessage(await response.clone().text().catch(cause => `[响应体读取失败: ${cause instanceof Error ? cause.message : String(cause)}]`))
+    : undefined;
   console.error("Agent 上游请求失败", {
     request,
     response: response ? {
@@ -74,6 +79,7 @@ export function configureAgentRequests(session: AgentSession, limits?: { maxRequ
   }
   const history = session.sessionManager;
   const cwd = history.getCwd();
+  const suanliModel = getSuanliModelForRuntime(session.modelRuntime);
   const afterToolCall = session.agent.afterToolCall;
   let toolFailure: { error: unknown } | undefined;
   session.agent.afterToolCall = async (call, signal) => {
@@ -103,6 +109,14 @@ export function configureAgentRequests(session: AgentSession, limits?: { maxRequ
       let partial: AssistantMessage | undefined;
       try {
         if (toolFailure) { const { error } = toolFailure; toolFailure = undefined; throw error; }
+        if (model.provider === "suanli" && (!suanliModel || suanliModel.modelRef !== model.id)) {
+          throw Object.assign(new Error("算力模型已失效，请重新选择模型"), { status: 409 });
+        }
+        const suanliIdentity = model.provider === "suanli" ? getCurrentUser().suanliIdentity : undefined;
+        if (model.provider === "suanli" && (!suanliIdentity?.userId || !suanliIdentity.sessionId)) {
+          throw Object.assign(new Error("当前登录状态缺少算力身份，请重新登录"), { status: 401 });
+        }
+        const clientTaskId = model.provider === "suanli" ? randomUUID() : undefined;
         const providers = getConfig().get("settings", {}).customProviders;
         const provider = Array.isArray(providers) ? providers.find(item => item?.id === model.provider) : undefined;
         const auth = await session.modelRuntime.getAuth(model, { apiKey: options?.apiKey, env: options?.env, signal: options?.signal });
@@ -239,7 +253,24 @@ export function configureAgentRequests(session: AgentSession, limits?: { maxRequ
             apiKey,
             onPayload: async (payload, requestModel) => {
               try {
-                const body = await options?.onPayload?.(payload, requestModel) ?? payload;
+                let body = await options?.onPayload?.(payload, requestModel) ?? payload;
+                if (requestModel.provider === "suanli") {
+                  if (!suanliModel || suanliModel.modelRef !== requestModel.id || !suanliIdentity || !clientTaskId) {
+                    throw Object.assign(new Error("算力模型请求信息不完整，请重新选择模型"), { status: 409 });
+                  }
+                  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Agent 请求格式无效");
+                  const messagesAndTools = { ...(body as Record<string, unknown>) };
+                  delete messagesAndTools.model;
+                  body = {
+                    ...messagesAndTools,
+                    model_id: suanliModel.modelId,
+                    platform_code: suanliModel.platformCode,
+                    client_task_id: clientTaskId,
+                    sessionId: suanliIdentity.sessionId,
+                    user_id: suanliIdentity.userId,
+                    ...(suanliIdentity.schoolId ? { school_id: suanliIdentity.schoolId } : {}),
+                  };
+                }
                 const images = getRequestFiles(body).filter(file => file.mimeType.toLowerCase().startsWith("image/"));
                 const imageCursors = new Map<string, number>();
                 activeImages = [];
@@ -308,10 +339,10 @@ export function configureAgentRequests(session: AgentSession, limits?: { maxRequ
               try {
                 response = await request(input, init);
               } catch (error) {
-                await logUpstreamFailure(requestInfo, undefined, error);
+                await logUpstreamFailure(requestInfo, undefined, error, !suanliModel);
                 throw error;
               }
-              if (!response.ok) await logUpstreamFailure(requestInfo, response);
+              if (!response.ok) await logUpstreamFailure(requestInfo, response, undefined, !suanliModel);
               if (response.status !== 413) return response;
               http413 = true;
               const headers = new Headers(response.headers);

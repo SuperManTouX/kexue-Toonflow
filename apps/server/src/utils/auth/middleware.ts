@@ -60,7 +60,7 @@ export const authRequest: RequestHandler = async (req, res, next) => {
       if (expectedUser !== user.id) throw Object.assign(new Error("登录用户已变化，请重新打开页面"), { status: 409, code: "EAUTHCHANGED" });
       if (path !== "/api/auth/logout") trackSessionResponse(res, session.sessionHash, session.expiresAt);
     }
-    runWithUser(createUserContext(user.id, user.name, session?.sessionHash), next);
+    runWithUser(createUserContext(user.id, user.name, session?.sessionHash, session?.suanliIdentity), next);
   } catch (error) { next(error); }
 };
 

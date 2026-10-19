@@ -27,11 +27,25 @@ export type ActiveAgentSession = {
   entryOffset: number; tools: Map<string, AgentToolCall>;
   abort(): Promise<void>;
 };
+const suanliTaskSchema = z.object({
+  messageId: z.uuid(),
+  modelLabel: z.string().min(1).max(256),
+  task: z.object({
+    taskId: z.uuid().optional(),
+    clientTaskId: z.uuid(),
+    modelLabel: z.string().min(1).max(256),
+    status: z.enum(["submitting", "checking", "queued", "processing", "completed", "failed", "cancelled", "timeout", "unavailable"]),
+    position: z.number().finite().optional(),
+    result: z.unknown().optional(),
+    error: z.string().max(8192).optional(),
+  }),
+});
 type SessionMessage = {
   id: string; entryId: string; role: "user" | "assistant"; content: string; replyTo?: string; error?: string;
   streaming?: boolean;
   attachments?: z.infer<typeof agentAttachmentsSchema>; report?: { file: string; name: string };
   mentions?: AgentMention[];
+  task?: z.infer<typeof suanliTaskSchema>["task"];
   parts: ({ id: string; type: "text" | "thinking"; content: string; collapsed?: boolean } | { id: string; type: "tool"; tool: AgentToolCall })[];
 };
 // ACT: 复用正在运行的 SDK 会话，文件锁仍由 run 持有；多进程部署时需共享会话所有权。
@@ -91,6 +105,37 @@ async function updateAgentSession(cwd: string, file: string, update: (history: S
     const pending = update(SessionManager.open(path, dirname(path), cwd));
     if (pending) await pending;
   } finally { release(); }
+}
+
+export async function appendSuanliTaskMessage(cwd: string, file: string, message: z.infer<typeof suanliTaskSchema>) {
+  await updateAgentSession(cwd, file, history => {
+    const duplicate = history.getBranch().some(entry => {
+      if (entry.type !== "custom" || entry.customType !== "toonflowSuanliTask") return false;
+      const parsed = suanliTaskSchema.safeParse(entry.data);
+      return parsed.success && parsed.data.messageId === message.messageId;
+    });
+    if (duplicate) throw Object.assign(new Error("算力任务消息标识已存在"), { status: 409 });
+    history.appendCustomEntry("toonflowSuanliTask", message);
+  });
+}
+
+export async function updateSuanliTaskMessage(cwd: string, file: string, messageId: string, task: Partial<z.infer<typeof suanliTaskSchema>["task"]>) {
+  await updateAgentSession(cwd, file, history => {
+    const entry = history.getBranch().findLast(item => {
+      if (item.type !== "custom" || item.customType !== "toonflowSuanliTask") return false;
+      const parsed = suanliTaskSchema.safeParse(item.data);
+      return parsed.success && parsed.data.messageId === messageId;
+    });
+    if (!entry || entry.type !== "custom") throw Object.assign(new Error("算力任务不属于此对话"), { status: 404 });
+    const current = suanliTaskSchema.parse(entry.data);
+    if (task.clientTaskId && task.clientTaskId !== current.task.clientTaskId) {
+      throw Object.assign(new Error("算力任务与对话记录不匹配"), { status: 409 });
+    }
+    const nextTask = { ...current.task, ...task };
+    if (JSON.stringify(nextTask) !== JSON.stringify(current.task)) {
+      history.appendCustomEntry("toonflowSuanliTask", { ...current, task: nextTask });
+    }
+  });
 }
 
 export async function updateSubAgent(cwd: string, parentFile: string, agent: AgentSubAgent) {
@@ -278,6 +323,13 @@ export async function getAgentSession(cwd: string, path: string) {
       return parsed.success ? [[parsed.data.messageId, parsed.data] as const] : [];
     })
   );
+  const suanliTaskMessages = new Map(
+    branch.flatMap(entry => {
+      if (entry.type !== "custom" || entry.customType !== "toonflowSuanliTask") return [];
+      const parsed = suanliTaskSchema.safeParse(entry.data);
+      return parsed.success ? [[parsed.data.messageId, { entryId: entry.id, data: parsed.data }] as const] : [];
+    })
+  );
   const toolResults = new Map(
     branch.flatMap((entry) =>
       entry.type === "message" && entry.message.role === "toolResult" ? [[entry.message.toolCallId, entry.message] as const] : []
@@ -285,6 +337,13 @@ export async function getAgentSession(cwd: string, path: string) {
   );
   let replyTo: string | undefined;
   const entriesMessages = branch.flatMap<SessionMessage>((entry) => {
+    if (entry.type === "custom" && entry.customType === "toonflowSuanliTask") {
+      const parsed = suanliTaskSchema.safeParse(entry.data);
+      if (!parsed.success || suanliTaskMessages.get(parsed.data.messageId)?.entryId !== entry.id) return [];
+      return [{
+        id: parsed.data.messageId, entryId: entry.id, role: "assistant" as const, content: "", parts: [], task: parsed.data.task,
+      }];
+    }
     if (entry.type === "custom" && entry.customType === "toonflowDeletedUser") replyTo = entry.id;
     if (entry.type === "custom_message" && entry.customType === "subAgentReport") {
       const details = entry.details as { id?: string; file: string; name: string; content?: string };
@@ -367,8 +426,9 @@ export async function getAgentSession(cwd: string, path: string) {
     message.role === "assistant" && !message.report && message.replyTo === latestUser.id && messageIndices.has(message.entryId)
   ) : undefined;
   if (activeReply) activeReply.streaming = true;
-  const messages = groupedMessages.filter((message) => message.content || message.parts.length || message.error || message.attachments?.length || message.mentions?.length);
+  const messages = groupedMessages.filter((message) => message.content || message.parts.length || message.error || message.attachments?.length || message.mentions?.length || message.task);
   const firstUserMessage = messages.find((item) => item.role === "user");
+  const firstSuanliTask = [...suanliTaskMessages.values()][0]?.data;
   const context = history.buildSessionContext();
   const lastReply = history.getBranch().findLast((entry) => entry.type === "message" && entry.message.role === "assistant");
   const model =
@@ -377,7 +437,10 @@ export async function getAgentSession(cwd: string, path: string) {
       : context.model;
   const providers = getConfig().get("settings", {}).customProviders;
   const provider = providerSchema.safeParse(Array.isArray(providers) ? providers.find((item) => item?.id === model?.provider) : undefined);
-  const configuredModel = provider.success ? provider.data.models.find((item) => item.id === model?.modelId) : undefined;
+  // ACT: 算力目录不提供上下文窗口；历史会话按统一模型回退限制展示，不从 customProviders 查课程模型 UUID。
+  const configuredModel = model?.provider === "suanli"
+    ? { id: model.modelId, label: model.modelId }
+    : provider.success ? provider.data.models.find((item) => item.id === model?.modelId) : undefined;
   const subAgents = new Map<string, AgentSubAgent>();
   for (const entry of history.getEntries()) {
     if (entry.type !== "custom" || entry.customType !== "toonflowSubAgent") continue;
@@ -387,7 +450,7 @@ export async function getAgentSession(cwd: string, path: string) {
   }
   return {
     file: basename(path),
-    name: history.getSessionName() || (firstUserMessage?.content.trim() || firstUserMessage?.attachments?.[0]?.name)?.slice(0, 60) || "新对话",
+    name: history.getSessionName() || (firstUserMessage?.content.trim() || firstUserMessage?.attachments?.[0]?.name)?.slice(0, 60) || firstSuanliTask?.modelLabel || "新对话",
     messages,
     stats: getAgentStats(history),
     contextUsage: configuredModel && model ? getAgentContext(history, getModelLimits(model.provider, configuredModel).contextWindow) : undefined,

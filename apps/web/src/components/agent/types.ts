@@ -7,6 +7,16 @@ export type AgentMessagePart =
   | { id: string; type: "thinking"; content: string; collapsed?: boolean; duration?: number }
   | { id: string; type: "tool"; tool: AgentToolCall; collapsed?: boolean };
 
+export type AgentSuanliTask = {
+  taskId?: string;
+  clientTaskId?: string;
+  modelLabel: string;
+  status: "submitting" | "checking" | "queued" | "processing" | "completed" | "failed" | "cancelled" | "timeout" | "unavailable";
+  position?: number;
+  result?: unknown;
+  error?: string;
+};
+
 export type AgentMessage = {
   id: string;
   entryId?: string;
@@ -19,6 +29,7 @@ export type AgentMessage = {
   streaming?: boolean;
   error?: string;
   report?: { file: string; name: string };
+  task?: AgentSuanliTask;
 };
 
 export type AgentHistory = { file: string; name: string; modified: string; messageCount: number };

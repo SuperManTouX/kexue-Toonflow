@@ -3,7 +3,8 @@ import { resolve } from "node:path";
 import type { Response } from "express";
 
 export type AuthMode = "local" | "sxwz";
-export type UserContext = { userId: string; name: string; dataDirectory: string; sessionHash?: string };
+export type SuanliIdentity = { userId: string; sessionId: string; schoolId?: string };
+export type UserContext = { userId: string; name: string; dataDirectory: string; sessionHash?: string; suanliIdentity?: SuanliIdentity };
 
 const userContext = new AsyncLocalStorage<UserContext>();
 let dataDirectory = process.env.TOONFLOW_DATA_DIR ?? resolve(import.meta.dirname, "../../../..", "data");
@@ -18,9 +19,15 @@ export function initializeUserContext(directory: string, mode: AuthMode) {
 export function getAuthMode() { return authMode; }
 export function canManageHost() { return authMode === "local"; }
 export function getSharedDataDirectory() { return authMode === "sxwz" ? resolve(dataDirectory, "shared") : dataDirectory; }
-export function createUserContext(userId: string, name: string, sessionHash?: string): UserContext {
+export function createUserContext(userId: string, name: string, sessionHash?: string, suanliIdentity?: SuanliIdentity): UserContext {
   if (!/^(?:local|[0-9a-f-]{36})$/.test(userId)) throw new Error("用户标识无效");
-  return { userId, name, sessionHash, dataDirectory: authMode === "local" ? dataDirectory : resolve(dataDirectory, "users", userId) };
+  return {
+    userId,
+    name,
+    sessionHash,
+    dataDirectory: authMode === "local" ? dataDirectory : resolve(dataDirectory, "users", userId),
+    ...(authMode === "sxwz" && suanliIdentity ? { suanliIdentity } : {}),
+  };
 }
 export function getCurrentUser(): UserContext {
   const user = userContext.getStore();

@@ -1,10 +1,10 @@
-# Suanli Agent 接入实施计划
+# 算力中台接入实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在现有 Agent 对话中接入算力中台模型目录，让文本模型保留 Agent 工具调用，让非文本模型按 AIGC 模板提交任务并使用阿里云 OSS 上传参考图片。
+**Goal:** 在现有 Agent 对话和媒体生成节点中接入算力中台模型目录，让文本模型保留 Agent 工具调用，让非文本模型按 AIGC 模板提交任务，并把媒体节点的生成结果写回当前工作区。
 
-**Architecture:** 服务端用 SXWZ 登录会话中的外部身份调用算力中台和独立 AIGC 域名，合并模型及模板后只向前端返回可展示的模型元数据。Agent 文本请求继续经过现有 pi-ai/OpenAI-compatible 工具循环，由服务端把模型 UUID 和可信身份写入算力请求；非文本请求由 Agent composer 的动态表单上传文件、创建任务并轮询结果。
+**Architecture:** 服务端用 SXWZ 登录会话中的外部身份调用算力中台和独立 AIGC 域名，合并模型及模板后只向前端返回可展示的模型元数据。Agent 文本请求继续经过现有 pi-ai/OpenAI-compatible 工具循环，由服务端把模型 UUID 和可信身份写入算力请求；Agent 非文本表单和媒体生成节点创建异步任务并轮询结果，节点结果由服务端保存到当前用户工作区。
 
 **Tech Stack:** Bun、TypeScript、Express 5、Zod、Vue 3、现有 `@earendil-works/pi-ai` OpenAI Completions API、`@aws-sdk/client-s3`。
 
@@ -17,6 +17,7 @@
 - 文本模型继续使用 Agent runtime 和标准 `tools` / 流式 `tool_calls`；非文本模型才显示模板表单。
 - SXWZ 身份只在服务端上下文与上游请求中使用；不接受浏览器提交的 `user_id`、`school_id`、`sessionId`。
 - `course_id` 当前没有可信来源，不发送也不接受。
+- 图片、视频、音频节点按 `ai_painting_talk`、`ai_video_talk`、`ai_music_talk` 显示对应算力模型，并复用 AIGC 模板参数。
 - Server 使用 Bun、TypeScript、ES Modules、Express；输入使用 Zod，JSON 路由使用现有 `success` / `error` 响应格式。
 - 新文件、目录、组件绑定和 DOM 类名使用小驼峰；一个路由文件只注册一个方法和路径，新增路由后运行 `bun run routes`。
 - 遵守仓库测试边界：不新增测试、自检文件、测试依赖或测试脚本；只执行现有 typecheck、build 和必要的手动验证。
@@ -58,7 +59,7 @@
 - Create: `apps/server/src/utils/suanli/client.ts`
 - Create: `apps/server/src/utils/suanli/models.ts`
 - Create: `apps/server/src/routes/suanli/models.ts`
-- Create: `apps/server/src/routes/suanli/models/[courseModelId]/config.ts`
+- Create: `apps/server/src/routes/suanli/models/[modelRef]/config.ts`
 - Create: `apps/web/src/stores/suanli.ts`
 - Modify: `apps/server/src/utils.ts`
 - Modify: `apps/server/package.json`
@@ -67,15 +68,15 @@
 
 **Interfaces:**
 - Produces: `SuanliParam = { ui: "textarea" | "proportion" | "hidden" | "dimension" | "quantity" | "resolution" | "select" | "imageUpload"; name: string; label: string; default?: unknown; required?: boolean; options?: (string | number)[]; maxCount?: number; dimension?: { width?: { min?: number; max?: number }; height?: { min?: number; max?: number }; separator: string } }`.
-- Produces: `SuanliModel = { providerId: "suanli"; modelId: string; modelKey: string; label: string; kind: string; category?: string; platformCode: string; platformName: string; params?: SuanliParam[] }`; `modelId` is the course-model UUID and `modelKey` is `/suanli/v1/models[].id`.
-- Produces: `GET /api/suanli/models` returns `{ code, data: SuanliModel[], message }` with every course-model record retained separately.
-- Produces: `GET /api/suanli/models/:courseModelId/config` validates membership in the current user’s catalog and returns the refreshed AIGC `params` for that model’s `modelKey`.
+- Produces: `SuanliModel = { providerId: "suanli"; modelRef: string; modelId: string; modelKey?: string; label: string; kind: string; category?: string; platformCode: string; platformName: string; params?: SuanliParam[] }`; platform/course records retain their UUID, `modelRef` identifies the platform plus UUID, and `modelKey` is present only when matched to `/models[].id`.
+- Produces: `GET /api/suanli/models` returns UUID models from `/platforms/{code}/models` and platform-filtered course-model lists for `ai_chat`, `ai_painting_talk`, `ai_video_talk`, and `ai_music_talk`. Duplicate UUIDs merge within the same platform; the same UUID in different platforms remains a separate option because requests carry `platform_code`. Standalone string IDs from `/models` are never model options.
+- Produces: `GET /api/suanli/models/:modelRef/config` validates membership in the current user’s catalog and returns the refreshed AIGC `params` for that model’s `modelKey`.
 - Produces: server exports the shared model response type through `@toonflow/server/suanli/types`; web store exports `suanliModels`, `refreshSuanliModels()`, and `getSuanliModel(value)` for the selector and Agent composer.
 
 - [ ] **Step 1: Define server-only endpoint configuration and shared types.** Read `SUANLI_BASE_URL` as the base origin and append `/suanli/v1`; read `SUANLI_API_TOKEN`; use `AIGC_BASE_URL` with default `https://talkingdraw.xueai.art/aigc`. Validate URLs and return a clear configuration error without logging credentials.
 - [ ] **Step 2: Implement bounded upstream requests.** In `client.ts`, add bearer-authenticated Suanli requests and AIGC requests with redirect rejection, abort timeouts, status checks, and JSON parsing. Do not forward browser authorization headers upstream.
-- [ ] **Step 3: Assemble the model catalog.** Fetch `/models`; fetch `/platforms/course-models` with the trusted `schoolId` and `pageSize` capped at 100 until `total`; join `models[].id` to `courseModels[].name`; keep every course-model UUID/platform record; fetch the batch AIGC configs using string model IDs and attach `params` to the matching entries.
-- [ ] **Step 4: Add the catalog and selected-model config routes.** Use `validateFields`, current-user identity, and existing response wrappers. The config route accepts a course-model UUID, resolves its string `modelKey` server-side, then calls AIGC `GET /open/models/{modelId}/config`.
+- [ ] **Step 3: Assemble the model catalog.** Fetch `/models`; fetch `/platforms/{code}/models` and `/platforms/course-models?platform={code}` for `ai_chat`, `ai_painting_talk`, `ai_video_talk`, and `ai_music_talk` with the trusted `schoolId`; paginate course models with `pageSize` capped at 100 until `total`; take only UUID platform/course records; set an AIGC lookup key only when the model name matches `/models[].id`. Treat each record's returned `kind` as the text/task discriminator.
+- [ ] **Step 4: Add the catalog and selected-model config routes.** Use `validateFields`, current-user identity, and existing response wrappers. The config route accepts the platform-plus-UUID `modelRef`, resolves its string `modelKey` server-side, then calls AIGC `GET /open/models/{modelId}/config`.
 - [ ] **Step 5: Add the web catalog store and export its response type.** The store reads only Toonflow’s catalog route, never the upstream domains; return no credentials or SXWZ identity fields to the browser.
 - [ ] **Step 6: Generate and verify routes.** Run `bun run --cwd apps/server routes`, then `bun run --cwd apps/server typecheck`.
 
@@ -89,12 +90,12 @@
 
 **Interfaces:**
 - Consumes: Task 1 `SuanliIdentity` and Task 2 `SuanliModel` / catalog lookup.
-- Produces: `createAgentModel("suanli", courseModelId, thinkingLevel)` registers the selected catalog entry as an OpenAI Completions model using the configured Suanli base URL and server token.
-- Produces: Agent request payload uses `model_id = courseModelId`, `platform_code` from the catalog, a server-generated `client_task_id`, and identity fields from `getCurrentUser().suanliIdentity`; existing `messages`, `tools`, and stream handling remain intact.
+- Produces: `createAgentModel("suanli", modelRef, thinkingLevel)` registers the selected catalog entry as an OpenAI Completions model using the configured Suanli base URL and server token.
+- Produces: Agent request payload uses the UUID `model_id`, `platform_code` from the catalog, a server-generated `client_task_id`, and identity fields from `getCurrentUser().suanliIdentity`; existing `messages`, `tools`, and stream handling remain intact.
 
-- [ ] **Step 1: Resolve Suanli models in the existing Agent model factory.** Add a `suanli` branch to configured-model lookup; reject a stale or unauthorized course-model UUID; retain existing generic providers for their non-Agent settings use.
+- [ ] **Step 1: Resolve Suanli models in the existing Agent model factory.** Add a `suanli` branch to configured-model lookup; reject a stale or unauthorized model ID from the current union catalog; retain existing generic providers for their non-Agent settings use.
 - [ ] **Step 2: Register the OpenAI-compatible runtime model.** Register the selected UUID with `openai-completions`, the `/suanli/v1` base URL, and the server-side bearer credential; keep the runtime provider ID stable as `suanli` so session records remain resolvable.
-- [ ] **Step 3: Translate only the request envelope.** In `configureAgentRequests`, use the existing `onPayload` hook to replace the OpenAI `model` field with Suanli `model_id` and inject `platform_code`, `client_task_id`, `sessionId`, `user_id`, and available `school_id`. Preserve `messages`, `tools`, stream options, and returned `tool_calls` unchanged.
+- [ ] **Step 3: Translate only the request envelope.** In `configureAgentRequests`, use the existing `onPayload` hook to replace the OpenAI `model` field with Suanli `model_id`, include `platform_code` only for platform/course model records, and inject `client_task_id`, `sessionId`, `user_id`, and available `school_id`. Preserve `messages`, `tools`, stream options, and returned `tool_calls` unchanged.
 - [ ] **Step 4: Resolve historical session context for Suanli models.** Update session context lookup so a stored `providerId: "suanli"` and course-model UUID use central model metadata instead of searching `settings.customProviders`.
 - [ ] **Step 5: Verify the server types and build.** Run `bun run --cwd apps/server typecheck` and `bun run --cwd apps/server build`.
 
@@ -118,13 +119,13 @@
 - Produces: `POST /api/suanli/tasks` accepts `{ modelId: string; body: Record<string, unknown> }`; the server resolves platform, creates `client_task_id`, injects identity, validates fields against `params`, and returns the upstream task ID/status.
 - Produces: task status and queued-task cancellation routes proxy the corresponding `kexuetest` operations only after current-user identity/ownership validation.
 
-- [ ] **Step 1: Add the S3-compatible OSS client.** Add `@aws-sdk/client-s3` to `apps/server`; configure endpoint, region, bucket, access key, secret, and public URL only from `OSS_ENDPOINT`, `OSS_REGION`, `OSS_BUCKET`, `OSS_ACCESS_KEY_ID`, `OSS_ACCESS_KEY_SECRET`, and `OSS_PUBLIC_URL`. Use server-generated object keys under the internal user’s prefix.
+- [ ] **Step 1: Add the S3-compatible OSS client.** Keep `@aws-sdk/client-s3` as an application dependency, but do not require OSS environment variables at server startup. Configure endpoint, region, bucket, access key, secret, and public URL only from `OSS_ENDPOINT`, `OSS_REGION`, `OSS_BUCKET`, `OSS_ACCESS_KEY_ID`, `OSS_ACCESS_KEY_SECRET`, and `OSS_PUBLIC_URL`. Use server-generated object keys under the internal user’s prefix.
 - [ ] **Step 2: Add bounded raw image upload parsing.** Before global JSON parsing in `app.ts`, parse `application/octet-stream` for `/api/suanli/upload` with a 20 MB limit. Validate image content type and non-empty body; ignore client filenames when constructing object keys; return only the resulting public URL.
 - [ ] **Step 3: Validate non-text task bodies on the server.** Re-resolve `modelId` in the current catalog; require a non-text model and valid template; apply template defaults; enforce required fields, allowed options, dimension bounds, `maxCount`, and ownership of uploaded OSS URLs; ignore identity/platform fields sent by the browser.
 - [ ] **Step 4: Implement task creation, status, and cancellation proxies.** Inject trusted identity on supported upstream operations; bind status/cancel to the user who created the task; use the HTTP methods and payloads defined by the `kexuetest` Apifox operations; propagate upstream errors through the existing error middleware.
 - [ ] **Step 5: Generate and verify routes and dependencies.** Run `bun run --cwd apps/server routes`, `bun run --cwd apps/server typecheck`, and `bun run --cwd apps/server build`.
 
-### Task 5: Add the controlled model selector and non-text Agent form
+### Task 5: Add the controlled model selector, Agent form, and type-specific media node models
 
 **Files:**
 - Create: `apps/web/src/components/agent/suanliTaskForm.vue`
@@ -132,17 +133,27 @@
 - Modify: `apps/web/src/components/agent/conversation.vue`
 - Modify: `apps/web/src/stores/suanli.ts`
 - Modify: `apps/web/src/stores/settings.ts` only to remove the Agent-only use of custom-provider `modelChoices`, if no other caller remains
+- Modify: `packages/nodeScaffold/src/nodeAi.ts`
+- Modify: `packages/nodeShared/package.json`
+- Create: `packages/nodeShared/src/components/suanliParamsForm.vue`
+- Modify: `packages/nodes/imageGenerationNode/src/index.vue`
+- Modify: `packages/nodes/videoGenerationNode/src/index.vue`
+- Modify: `packages/nodes/audioGenerationNode/src/index.vue`
 
 **Interfaces:**
 - Consumes: Task 2 `SuanliModel` store and server routes; Task 3 stable `providerId: "suanli"` plus course-model UUID; Task 4 upload/task routes.
-- Produces: model selector options represent central course-model records and distinguish duplicate names by platform; no user `customProviders` model list appears in the Agent selector.
+- Produces: model selector options represent UUID records from the four platform lists and course models; entries with duplicate UUIDs remain distinguishable by platform; standalone `/models` string IDs and user `customProviders` models do not appear in the Agent selector.
 - Produces: text selections use existing Agent conversation requests; non-text selections render template fields and submit/poll tasks without invoking the text Agent route.
+- Produces: image, video, and audio selectors contain only Suanli models from their matching platform; nodes reuse the template form, submit through the node media task route, and bind saved files to their outputs.
 
 - [ ] **Step 1: Switch the Agent model selector to the central catalog.** Load `suanliModels` in `modelPopover.vue`, group by platform, preserve distinct UUIDs, and do not silently substitute a different model when the selected model disappears. Show reasoning controls only for text models.
-- [ ] **Step 2: Load and render the selected model template.** When a non-text model is selected, refresh its `params` from `/api/suanli/models/:courseModelId/config`; if that request fails or returns an unsupported field, block submission with a visible error. In `suanliTaskForm.vue`, implement `textarea`, `proportion`, `hidden`, `dimension`, `quantity`, `resolution`, `select`, and `imageUpload`; initialize defaults and enforce required values, options, dimensions, and `maxCount`.
+- [ ] **Step 2: Load and render the selected model template.** When a non-text model is selected, refresh its `params` and `imageUploadAvailable` from `/api/suanli/models/:modelRef/config`; if that request fails or returns an unsupported field, block submission with a visible error. When OSS is unavailable, disable image selection and block models with required image fields. In `suanliTaskForm.vue`, implement `textarea`, `proportion`, `hidden`, `dimension`, `quantity`, `resolution`, `select`, and `imageUpload`; initialize defaults and enforce required values, options, dimensions, and `maxCount`.
 - [ ] **Step 3: Connect upload and task lifecycle.** Upload each selected image through Toonflow using `appFetch`, store the returned URL in the matching field, submit the selected course-model UUID and validated values, poll task status until a terminal result, and call the documented cancel operation when the user stops a queued task.
 - [ ] **Step 4: Branch the existing composer by model kind.** Keep ordinary text input and `/api/agent` for text models so the Agent tool loop remains active; show the dynamic task form only for non-text models and render status/result in the current conversation view.
 - [ ] **Step 5: Verify the web types and build.** Run `bun run --filter '@toonflow/web' typecheck` and `bun run --filter '@toonflow/web' build`.
+- [ ] **Step 6: Connect media nodes to the type-specific catalog.** Load only the matching Suanli platform in each node, render the shared template form for Suanli selections, and send completed files to the node output.
+- [ ] **Step 7: Add the node task route and save terminal results.** Validate model platform against node media type, poll until terminal status, cancel on abort, validate result MIME type, and write output assets through existing workspace file coordination.
+- [ ] **Step 8: Verify each node package.** Run existing typecheck and production build scripts for the shared form, scaffold, and image, video, and audio nodes.
 
 ### Task 6: Document deployment configuration and manually verify the integrated flow
 
@@ -150,7 +161,7 @@
 - Modify: `docs/development.md`
 - Modify: `docs/suanliAgentIntegrationDesign.md` only if implementation reveals a contract clarification that changes the approved behavior
 
-- [ ] **Step 1: Document server environment variables.** Add names and required/default behavior for `SUANLI_BASE_URL`, `SUANLI_API_TOKEN`, `AIGC_BASE_URL`, and the six `OSS_*` variables; never add actual credentials.
+- [ ] **Step 1: Document server environment variables.** Add names and required/default behavior for `SUANLI_BASE_URL`, `SUANLI_API_TOKEN`, `AIGC_BASE_URL`, and the optional six `OSS_*` variables; never add actual credentials.
 - [ ] **Step 2: Run repository checks.** Run `bun run typecheck`, `bun run --cwd apps/server build`, and the web build after all route files have been generated.
 - [ ] **Step 3: Manually verify with configured services.** In a signed-in SXWZ session, verify the merged catalog, a text conversation that emits an Agent tool call, a non-text form submission, an image upload, task polling, and queued cancellation. If deployment credentials or OSS configuration are unavailable, report those live calls as unverified rather than inferring success from compilation.
 

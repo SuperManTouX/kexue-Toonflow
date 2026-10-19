@@ -17,7 +17,24 @@ export type NodeAiModel = {
 };
 export type NodeMediaModel = Omit<MediaModel, "mode"> & {
   mode?: (string | string[])[];
+  modelRef?: string;
 };
+type NodeSuanliParamBase = {
+  name: string;
+  label: string;
+  default?: unknown;
+  required?: boolean;
+};
+export type NodeSuanliParam =
+  | (NodeSuanliParamBase & { ui: "textarea" })
+  | (NodeSuanliParamBase & { ui: "hidden" })
+  | (NodeSuanliParamBase & { ui: "proportion"; options: string[] })
+  | (NodeSuanliParamBase & { ui: "resolution"; options: string[] })
+  | (NodeSuanliParamBase & { ui: "quantity"; options: number[] })
+  | (NodeSuanliParamBase & { ui: "select"; options: (string | number)[] })
+  | (NodeSuanliParamBase & { ui: "dimension"; dimension: { width?: { min?: number; max?: number }; height?: { min?: number; max?: number }; separator: string } })
+  | (NodeSuanliParamBase & { ui: "imageUpload"; maxCount: number });
+export type NodeSuanliModelConfig = { params: NodeSuanliParam[]; imageUploadAvailable: boolean };
 export type NodeImageRequest = {
   directory: string;
   providerId: string;
@@ -62,7 +79,7 @@ export type NodeAiTool = {
 
 async function readResult<T>(response: Response): Promise<T> {
   const result = await response.json();
-  if (!response.ok || result.code !== 200) throw new Error(result.message || `AI 请求失败（HTTP ${response.status}）`);
+  if (!response.ok || result.code !== 200) throw Object.assign(new Error(result.message || `AI 请求失败（HTTP ${response.status}）`), { status: response.status });
   return result.data;
 }
 
@@ -92,7 +109,10 @@ const mediaPriceCache = mediaPriceCacheHost[mediaPriceCacheKey] ??= (() => {
 
 export function invalidateNodeModels(type: "language" | "media") {
   modelCache.delete(type === "language" ? "/api/ai/models" : "/api/ai/media/models");
-  if (type === "media") mediaPriceCache.prices.clear();
+  if (type === "media") {
+    modelCache.delete("/api/suanli/models");
+    mediaPriceCache.prices.clear();
+  }
 }
 
 async function readModels<T>(url: string, signal: AbortSignal): Promise<T[]> {
@@ -179,6 +199,56 @@ export function useNodeAi() {
 
   async function getMediaModels(signal?: AbortSignal) {
     return readModels<NodeMediaModel>("/api/ai/media/models", requestSignal(signal));
+  }
+
+  async function getSuanliMediaModels(mediaType: "image" | "video" | "audio", signal?: AbortSignal) {
+    const models = await readModels<{ modelRef: string; modelId: string; label: string; platformCode: string; platformName: string }>("/api/suanli/models", requestSignal(signal)).catch(error => {
+      if ((error as { status?: number }).status === 401) return [];
+      throw error;
+    });
+    const platformCode = { image: "ai_painting_talk", video: "ai_video_talk", audio: "ai_music_talk" }[mediaType];
+    return models.filter(model => model.platformCode === platformCode).map(model => ({
+      providerId: "suanli",
+      providerLabel: model.platformName || "算力中台",
+      modelId: model.modelRef,
+      modelRef: model.modelRef,
+      label: model.label,
+      type: mediaType,
+      supportsPrice: false,
+    } satisfies NodeMediaModel));
+  }
+
+  async function getSuanliModelConfig(modelRef: string, signal?: AbortSignal) {
+    return readResult<NodeSuanliModelConfig>(await hostRequest(`/api/suanli/models/${encodeURIComponent(modelRef)}/config`, {
+      cache: "no-store", signal: requestSignal(signal),
+    }));
+  }
+
+  async function uploadSuanliImage(file: File, signal?: AbortSignal) {
+    const contentType = file.type.toLowerCase() === "image/jpg" ? "image/jpeg" : file.type.toLowerCase();
+    return readResult<{ url: string }>(await hostRequest("/api/suanli/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream", "X-File-Content-Type": contentType },
+      body: file,
+      signal: requestSignal(signal),
+    })).then(result => {
+      if (typeof result.url !== "string") throw new Error("图片上传响应格式无效");
+      return result.url;
+    });
+  }
+
+  async function generateSuanliMedia(mediaType: "image" | "video" | "audio", input: {
+    directory: string;
+    outputDirectory: string;
+    modelRef: string;
+    body: Record<string, unknown>;
+  }, signal?: AbortSignal) {
+    return readResult<{ path: string; mimeType: string; mediaType: typeof mediaType }[]>(await hostRequest("/api/suanli/nodeMedia/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-toonflow-workspace": "1" },
+      body: JSON.stringify({ ...input, mediaType }),
+      signal: requestSignal(signal),
+    }));
   }
 
   async function getMediaPrice(input: NodeMediaPriceRequest, signal?: AbortSignal): Promise<NodeMediaPrice | null> {
@@ -319,5 +389,5 @@ export function useNodeAi() {
     return { text, ...(reasoning ? { reasoning } : {}) };
   }
 
-  return { getModels, getMediaModels, getMediaPrice, generateImage, generateVideo, generateAudio, generate };
+  return { getModels, getMediaModels, getSuanliMediaModels, getSuanliModelConfig, uploadSuanliImage, generateSuanliMedia, getMediaPrice, generateImage, generateVideo, generateAudio, generate };
 }

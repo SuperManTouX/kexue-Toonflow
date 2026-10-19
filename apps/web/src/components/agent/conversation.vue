@@ -54,6 +54,13 @@
                     <toolMessage v-else-if="part.type === 'tool' && !isBrowserTool(part.tool)" v-model:collapsed="part.collapsed" :tool="part.tool" :directory="directory" @copy="copyMessage" />
                     <messageMarkdown v-else-if="part.type === 'text' && part.content" :content="part.content" :streaming="!!item.streaming" :directory="directory" />
                   </template>
+                  <section v-if="item.task" class="suanliTaskMessage" :aria-label="`${item.task.modelLabel}任务状态`">
+                    <div class="taskHeader"><strong>{{ item.task.modelLabel }}</strong><el-tag size="small" :type="taskStatusType(item.task.status)">{{ taskStatusLabel(item.task.status) }}</el-tag></div>
+                    <p v-if="item.task.position !== undefined" class="taskPosition">队列位置：{{ item.task.position }}</p>
+                    <p v-if="item.task.error" class="taskError" role="alert">{{ item.task.error }}</p>
+                    <pre v-if="item.task.result !== undefined" class="taskResult">{{ formatTaskResult(item.task.result) }}</pre>
+                    <el-button v-if="item.task.status === 'queued' && item.task.taskId" text size="small" :loading="cancellingTaskId === item.id" :disabled="locked" @click="cancelSuanliTaskMessage(item)">取消排队任务</el-button>
+                  </section>
                   <attachmentList v-if="item.attachments?.length" :attachments="item.attachments" :directory="directory" />
                   <div v-if="item.role === 'user'" class="messageText"><mentionContent :content="item.content" :mentions="item.mentions" :directory="directory" /></div>
                   <div v-if="item.error" class="messageError" role="alert">{{ item.error }}</div>
@@ -70,7 +77,7 @@
                 <template v-if="item.role === 'user'">
                   <el-button class="messageAction" text circle :disabled="locked || remoteRunning" aria-label="编辑消息" title="编辑消息" @click="editMessage(item)"><icon-pencil :size="14" /></el-button>
                 </template>
-                <el-button v-if="!item.report" class="messageAction" text circle :loading="deletingId === item.id" :disabled="locked || remoteRunning" aria-label="删除消息" title="删除消息" @click="deleteMessage(item)"><icon-trash v-if="deletingId !== item.id" :size="14" /></el-button>
+                <el-button v-if="!item.report && !item.task" class="messageAction" text circle :loading="deletingId === item.id" :disabled="locked || remoteRunning" aria-label="删除消息" title="删除消息" @click="deleteMessage(item)"><icon-trash v-if="deletingId !== item.id" :size="14" /></el-button>
               </template>
             </div>
             <browserPanel v-if="browserMessages.tools.has(item.id)" class="browserPreview" :tools="browserMessages.tools.get(item.id)!" :directory="directory" :active="active" :live="item.id === browserMessages.liveMessageId" />
@@ -108,17 +115,21 @@
         @lostpointercapture="stopSenderResize"
         @keydown.up.prevent="setSenderHeight((sender?.chatElement.rollBox.clientHeight ?? 44) + 16)"
         @keydown.down.prevent="setSenderHeight((sender?.chatElement.rollBox.clientHeight ?? 44) - 16)" />
-      <attachmentList v-if="draftAttachments.length" class="draftAttachments" :attachments="draftAttachments" :directory="directory" removable restorable :disabled="locked" @remove="draftAttachments.splice($event, 1)" @restore="restoreTextAttachment" />
-      <div ref="senderElement" class="senderEditor" @keydown.capture="handleSenderKeydown"></div>
-      <teleport v-for="target in draftMentionTargets" :key="target.key" :to="target.element"><mentionThumbnail v-bind="mentionThumbnailProps(target.mention)" :directory="directory"><icon-photo :size="14" /></mentionThumbnail></teleport>
-      <mentionContent ref="draftMentionPreview" :mentions="draftMentions" :directory="directory" removable @remove="removeDraftMention" />
+      <attachmentList v-if="!selectedSuanliNonText && draftAttachments.length" class="draftAttachments" :attachments="draftAttachments" :directory="directory" removable restorable :disabled="locked" @remove="draftAttachments.splice($event, 1)" @restore="restoreTextAttachment" />
+      <div v-if="!selectedSuanliNonText" ref="senderElement" class="senderEditor" @keydown.capture="handleSenderKeydown"></div>
+      <template v-if="!selectedSuanliNonText">
+        <teleport v-for="target in draftMentionTargets" :key="target.key" :to="target.element"><mentionThumbnail v-bind="mentionThumbnailProps(target.mention)" :directory="directory"><icon-photo :size="14" /></mentionThumbnail></teleport>
+        <mentionContent ref="draftMentionPreview" :mentions="draftMentions" :directory="directory" removable @remove="removeDraftMention" />
+      </template>
+      <suanliTaskForm v-if="selectedSuanliNonText && selectedSuanliModel" :key="selectedSuanliModel.modelRef" :model="selectedSuanliModel" :disabled="props.disabled || taskSubmitting" @submit="submitSuanliTask" />
       <div class="senderActions">
-        <modelPopover v-model="selectedModel" v-model:reasoningEffort="reasoningEffort" :active="active" :disabled="disabled" />
-        <input ref="attachmentInput" type="file" :accept="attachmentAccept" multiple hidden :disabled="locked" @change="selectAttachments" />
-        <el-button text circle :disabled="locked" aria-label="添加附件" title="添加附件" @click="attachmentInput?.click()"><icon-paperclip :size="16" /></el-button>
-        <mentionMenu ref="mentionMenuRef" :directory="directory" :active="active" :disabled="locked || !directory" :query="mentionQuery" :editor="senderElement" :currentCanvasId="createCanvasContext?.()?.id" @open="captureMentionPosition" @select="insertMentions" @dismiss="mentionQuery = undefined" />
-        <skillMenu ref="skillMenuRef" :directory="directory" :active="active" :disabled="locked || !directory" :query="skillQuery" :editor="senderElement" @select="selectSkill" @dismiss="skillQuery = undefined" />
-        <el-popover
+        <modelPopover v-model="selectedModel" v-model:reasoningEffort="reasoningEffort" :active="active" :disabled="disabled || busy || remoteRunning" suanliOnly />
+        <template v-if="!selectedSuanliNonText">
+          <input ref="attachmentInput" type="file" :accept="attachmentAccept" multiple hidden :disabled="locked" @change="selectAttachments" />
+          <el-button text circle :disabled="locked" aria-label="添加附件" title="添加附件" @click="attachmentInput?.click()"><icon-paperclip :size="16" /></el-button>
+          <mentionMenu ref="mentionMenuRef" :directory="directory" :active="active" :disabled="locked || !directory" :query="mentionQuery" :editor="senderElement" :currentCanvasId="createCanvasContext?.()?.id" @open="captureMentionPosition" @select="insertMentions" @dismiss="mentionQuery = undefined" />
+          <skillMenu ref="skillMenuRef" :directory="directory" :active="active" :disabled="locked || !directory" :query="skillQuery" :editor="senderElement" @select="selectSkill" @dismiss="skillQuery = undefined" />
+          <el-popover
           v-model:visible="contextMenuVisible"
           trigger="click"
           placement="top"
@@ -149,11 +160,12 @@
               <div v-if="stats.tokensPerSecond !== undefined" class="contextTokens"><span>生成速度</span><span>{{ stats.tokensPerSecond.toFixed(1) }} tok/s</span></div>
             </div>
           </div>
-        </el-popover>
-        <el-button class="sendButton" type="primary" circle :disabled="!busy && locked" :aria-label="busy ? '停止生成' : editingId ? '重发消息' : '发送消息'" :title="busy ? '停止生成' : editingId ? '重发消息' : '发送消息'" @click="busy ? stopMessage() : submitMessage()">
-          <icon-player-stop-filled v-if="busy" :size="14" />
-          <icon-arrow-up v-else :size="16" />
-        </el-button>
+          </el-popover>
+          <el-button class="sendButton" type="primary" circle :disabled="!busy && locked" :aria-label="busy ? '停止生成' : editingId ? '重发消息' : '发送消息'" :title="busy ? '停止生成' : editingId ? '重发消息' : '发送消息'" @click="busy ? stopMessage() : submitMessage()">
+            <icon-player-stop-filled v-if="busy" :size="14" />
+            <icon-arrow-up v-else :size="16" />
+          </el-button>
+        </template>
       </div>
     </div>
   </div>
@@ -162,7 +174,7 @@
 <script setup lang="ts">
 import { appFetch } from "@/lib/auth";
 import { locale, t, translate } from "@toonflow/i18n/vue";
-import { computed, inject, nextTick, reactive, ref, shallowRef, watch, type ComponentPublicInstance } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch, type ComponentPublicInstance } from "vue";
 import { defaultRangeExtractor, measureElement, observeElementRect, useVirtualizer } from "@tanstack/vue-virtual";
 import axios from "axios";
 import {
@@ -185,9 +197,9 @@ import { createPastedTextFile, readTextAttachment } from "./textAttachments";
 import useWorkspaceFiles from "@/lib/workspaceFiles";
 import { writeClipboardText } from "@/lib/clipboard";
 import anonymousData from "@/lib/anonymousData";
-import { modelChoices } from "@/stores/settings";
+import { cancelSuanliTask, createSuanliTask, getSuanliModel, getSuanliTask, type SuanliTask } from "@/stores/suanli";
 import { useWorkspaceStore } from "@/stores/workspace";
-import type { AgentAttachment, AgentConversation, AgentMessage } from "./types";
+import type { AgentAttachment, AgentConversation, AgentMessage, AgentSuanliTask } from "./types";
 import type { AgentEvent, AgentMention, AgentToolCall } from "@toonflow/server/agent/types";
 import { createConversationStream, readAgentEvents } from "./replyStream";
 import type { CanvasContext } from "@toonflow/tool-canvas/runtime";
@@ -196,6 +208,7 @@ import { isBrowserTool } from "@toonflow/tool-browser/client";
 import chatItem from "@tdesign-vue-next/chat/es/chat-item";
 import chatReasoning from "@tdesign-vue-next/chat/es/chat-reasoning";
 import messageMarkdown from "@/components/messageMarkdown.vue";
+import suanliTaskForm from "./suanliTaskForm.vue";
 import xSender, { type AnyTagProps } from "x-sender";
 import "tdesign-vue-next/es/style/index.css";
 import "@tdesign-vue-next/chat/es/style/index.css";
@@ -244,6 +257,9 @@ const remoteRunning = ref(props.initialSession?.running ?? false);
 const stats = ref(props.initialSession?.stats);
 const contextUsage = ref(props.initialSession?.contextUsage);
 const busy = ref(false);
+const taskSubmitting = ref(false);
+const cancellingTaskId = ref("");
+const taskPollControllers = new Map<string, AbortController>();
 const compacting = ref(false);
 const deletingId = ref<string>();
 const restoringAttachment = ref(false);
@@ -343,7 +359,21 @@ const selectedModel = ref(pendingMessage?.model ?? (props.initialSession?.provid
   ? JSON.stringify([props.initialSession.providerId, props.initialSession.modelId]) : ""));
 const contextMenuVisible = ref(false);
 const reasoningEffort = ref(pendingMessage?.reasoningEffort ?? (props.initialSession?.thinkingLevel === "off" ? "" : props.initialSession?.thinkingLevel ?? ""));
-const selectedModelChoice = computed(() => modelChoices.value.find(item => item.value === selectedModel.value));
+function parseSelectedModel(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) && typeof parsed[0] === "string" && typeof parsed[1] === "string"
+      ? { providerId: parsed[0], modelId: parsed[1] } : undefined;
+  } catch { return undefined; }
+}
+const selectedSuanliModel = computed(() => {
+  const parsed = parseSelectedModel(selectedModel.value);
+  return parsed?.providerId === "suanli" ? getSuanliModel(parsed.modelId) : undefined;
+});
+const selectedSuanliNonText = computed(() => !!selectedSuanliModel.value && selectedSuanliModel.value.kind.toLowerCase() !== "llm");
+const selectedModelChoice = computed(() => selectedSuanliModel.value ? {
+  providerId: "suanli", modelId: selectedSuanliModel.value.modelRef, label: selectedSuanliModel.value.label, contextWindow: undefined,
+} : undefined);
 const contextWindow = computed(() => contextUsage.value?.contextWindow ?? selectedModelChoice.value?.contextWindow ?? 262144);
 const contextPercent = computed(() => (contextUsage.value?.tokens ?? 0) / contextWindow.value * 100);
 const inputTokens = computed(() => stats.value ? stats.value.tokens.input + stats.value.tokens.cacheRead + stats.value.tokens.cacheWrite : 0);
@@ -569,6 +599,119 @@ function stopMessage() {
   controller?.abort();
 }
 
+function taskStatusLabel(status: AgentSuanliTask["status"]) {
+  return ({ submitting: "提交中", checking: "确认状态", queued: "排队中", processing: "处理中", completed: "已完成", failed: "失败", cancelled: "已取消", timeout: "已超时", unavailable: "无法查询" })[status];
+}
+
+function taskStatusType(status: AgentSuanliTask["status"]) {
+  if (status === "completed") return "success";
+  if (status === "failed" || status === "timeout") return "danger";
+  if (status === "queued" || status === "submitting" || status === "checking") return "warning";
+  return "info";
+}
+
+function formatTaskResult(result: unknown) {
+  if (typeof result === "string") return result;
+  try { return JSON.stringify(result, null, 2) ?? "暂无结果内容"; }
+  catch { return String(result); }
+}
+
+function waitForTaskPoll(signal: AbortSignal, delay: number) {
+  return new Promise<void>(resolve => {
+    if (signal.aborted) { resolve(); return; }
+    const finish = () => {
+      window.clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = window.setTimeout(finish, delay);
+    signal.addEventListener("abort", finish, { once: true });
+  });
+}
+
+async function pollSuanliTask(message: AgentMessage, sessionFile = props.sessionFile) {
+  const task = message.task;
+  if (!task?.taskId && !task?.clientTaskId) return;
+  if (["completed", "failed", "cancelled", "timeout", "unavailable"].includes(task.status)) return;
+  if (!directory || !sessionFile) return;
+  const pollController = new AbortController();
+  taskPollControllers.set(message.id, pollController);
+  let failures = 0;
+  try {
+    while (!pollController.signal.aborted) {
+      const delay = failures ? Math.min(30000, 2500 * 2 ** Math.min(failures, 4)) : 2500;
+      await waitForTaskPoll(pollController.signal, delay);
+      if (pollController.signal.aborted) return;
+      try {
+        const latest: SuanliTask = await getSuanliTask(task.taskId ?? task.clientTaskId!, { directory, sessionFile, messageId: message.id });
+        Object.assign(task, latest);
+        task.error = latest.error;
+        failures = 0;
+        if (["completed", "failed", "cancelled", "timeout", "unavailable"].includes(task.status)) return;
+      } catch (error) {
+        failures++;
+        task.error = error instanceof Error ? error.message : "查询任务状态失败";
+      }
+    }
+  } finally {
+    if (taskPollControllers.get(message.id) === pollController) taskPollControllers.delete(message.id);
+  }
+}
+
+async function submitSuanliTask(values: Record<string, unknown>) {
+  const model = selectedSuanliModel.value;
+  if (!model || !directory || taskSubmitting.value || props.disabled) return;
+  taskSubmitting.value = true;
+  const userMessage = { id: crypto.randomUUID(), role: "user" as const, content: `使用「${model.label}」创建生成任务` };
+  const messageId = crypto.randomUUID();
+  const taskMessage = reactive<AgentMessage>({
+    id: messageId, role: "assistant", content: "", parts: [],
+    task: { modelLabel: model.label, status: "submitting" },
+  });
+  messages.value.push(userMessage, taskMessage);
+  try {
+    const created = await createSuanliTask(model.modelRef, values, { directory, sessionFile: props.sessionFile, messageId });
+    emit("session", created.sessionFile);
+    Object.assign(taskMessage.task!, {
+      taskId: created.taskId, clientTaskId: created.clientTaskId, status: created.status, position: created.position,
+      result: created.result, error: created.error,
+    });
+    void pollSuanliTask(taskMessage, created.sessionFile);
+  } catch (error) {
+    const failure = error as { clientTaskId?: string; sessionFile?: string };
+    const clientTaskId = failure.clientTaskId;
+    if (failure.sessionFile) emit("session", failure.sessionFile);
+    taskMessage.task!.status = clientTaskId ? "checking" : "failed";
+    taskMessage.task!.clientTaskId = clientTaskId;
+    taskMessage.task!.error = error instanceof Error ? error.message : "提交算力任务失败";
+    if (clientTaskId) void pollSuanliTask(taskMessage, failure.sessionFile);
+  } finally { taskSubmitting.value = false; }
+}
+
+onMounted(() => {
+  for (const message of messages.value) {
+    if (message.task && !["completed", "failed", "cancelled", "timeout", "unavailable"].includes(message.task.status)) {
+      void pollSuanliTask(message);
+    }
+  }
+});
+
+async function cancelSuanliTaskMessage(message: AgentMessage) {
+  const task = message.task;
+  if (!task?.taskId || task.status !== "queued" || cancellingTaskId.value) return;
+  cancellingTaskId.value = message.id;
+  try {
+    Object.assign(task, await cancelSuanliTask(task.taskId));
+    task.error = undefined;
+  } catch (error) {
+    task.error = error instanceof Error ? error.message : "取消任务失败";
+  } finally { cancellingTaskId.value = ""; }
+}
+
+onBeforeUnmount(() => {
+  for (const pollController of taskPollControllers.values()) pollController.abort();
+});
+
 async function uploadAttachments(attachments: AgentAttachment[], directory: string, signal: AbortSignal) {
   if (!attachments.some(item => item.file)) return;
   const files = useWorkspaceFiles(directory);
@@ -793,6 +936,7 @@ function resetAttachmentDrag() {
 }
 
 function dragEnterAttachments(event: DragEvent) {
+  if (selectedSuanliNonText.value) return;
   if (!event.dataTransfer?.types.includes("Files")) return;
   attachmentDragDepth++;
   dragOverAttachments(event);
@@ -815,6 +959,7 @@ function dragLeaveAttachments(event: DragEvent) {
 
 function dropAttachments(event: DragEvent) {
   resetAttachmentDrag();
+  if (selectedSuanliNonText.value) return;
   const files = Array.from(event.dataTransfer?.files ?? []);
   if (!files.length) return;
   event.preventDefault();
@@ -823,7 +968,7 @@ function dropAttachments(event: DragEvent) {
 }
 
 function addAttachments(files: File[]) {
-  if (locked.value) return;
+  if (locked.value || selectedSuanliNonText.value) return;
   for (const file of files) {
     const readableMimeType = getReadableFileMimeType(file.name, file.type);
     const mimeType = readableMimeType ?? file.type.split(";")[0]!.trim().toLowerCase();
@@ -1146,6 +1291,32 @@ watch(() => !props.initialSession?.parentFile && !!workspaceStore.pendingAgentMe
         white-space: pre-wrap;
         font-size: 13px;
         line-height: 1.6;
+      }
+
+      .suanliTaskMessage {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        max-width: min(100%, 720px);
+        padding: 12px;
+        border: 1px solid var(--el-border-color-lighter);
+        border-radius: var(--el-border-radius-base);
+        background: var(--el-fill-color-lighter);
+
+        .taskHeader { display: flex; align-items: center; gap: 8px; }
+        .taskPosition,
+        .taskError { margin: 0; font-size: 12px; color: var(--el-text-color-secondary); }
+        .taskError { color: var(--el-color-danger); }
+        .taskResult {
+          max-width: 100%;
+          max-height: 320px;
+          margin: 0;
+          overflow: auto;
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+          font: 12px/1.5 var(--el-font-family);
+        }
       }
 
       .messageError {

@@ -1,8 +1,27 @@
 import { z } from "zod";
 
-const identitySchema = z.object({ status: z.literal(1000), data: z.object({ userInfo: z.object({
-  userName: z.string().trim().min(1).max(256), sessionId: z.string().trim().min(1).max(4096),
-}) }) });
+const identifierSchema = z.union([
+  z.string().trim().min(1).max(256),
+  z.number().int().nonnegative(),
+]).transform(String);
+const optionalIdentifierSchema = identifierSchema.nullable().optional();
+const educationIdentitySchema = z.object({
+  schoolId: optionalIdentifierSchema,
+  eduCollege: z.object({ schoolId: optionalIdentifierSchema }).nullable().optional(),
+}).nullable().optional();
+const identitySchema = z.object({
+  status: z.literal(1000),
+  data: z.object({
+    userInfo: z.object({
+      userName: z.string().trim().min(1).max(256),
+      userId: identifierSchema,
+      sessionId: z.string().trim().min(1).max(4096),
+      schoolId: optionalIdentifierSchema,
+      eduStudent: educationIdentitySchema,
+      eduTeacher: educationIdentitySchema,
+    }),
+  }),
+});
 let verificationUrl = "";
 
 export function configureVerification() {
@@ -33,5 +52,18 @@ export async function verifyExternalToken(token: string) {
   catch { throw Object.assign(new Error("SXWZ 认证响应格式无效"), { status: 502 }); }
   const parsed = identitySchema.safeParse(body);
   if (!parsed.success) throw Object.assign(new Error("SXWZ 未返回有效的登录身份"), { status: 401 });
-  return { userName: parsed.data.data.userInfo.userName, externalSubject: parsed.data.data.userInfo.sessionId };
+  const userInfo = parsed.data.data.userInfo;
+  const nestedSchoolIds = [
+    userInfo.eduStudent?.schoolId,
+    userInfo.eduStudent?.eduCollege?.schoolId,
+    userInfo.eduTeacher?.schoolId,
+    userInfo.eduTeacher?.eduCollege?.schoolId,
+  ].filter((value): value is string => Boolean(value));
+  const distinctNestedSchoolIds = new Set(nestedSchoolIds);
+  const schoolId = userInfo.schoolId ?? (distinctNestedSchoolIds.size === 1 ? nestedSchoolIds[0] : undefined);
+  return {
+    userName: userInfo.userName,
+    externalSubject: userInfo.sessionId,
+    suanliIdentity: { userId: userInfo.userId, sessionId: userInfo.sessionId, ...(schoolId ? { schoolId } : {}) },
+  };
 }

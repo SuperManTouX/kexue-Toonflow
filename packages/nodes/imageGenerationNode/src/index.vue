@@ -52,7 +52,14 @@
           @preview="setReferencePreview"
           @remove="removeReference" />
         <promptInput v-if="editor?.mode === 'inpaint'" v-model="data.inpaintPromptModel" v-model:text="data.inpaintPrompt" :references="referenceMentions" expandable />
-        <promptInput v-else v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" expandable />
+        <promptInput v-else-if="selectedModel?.providerId !== 'suanli'" v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" expandable />
+        <suanliParamsForm
+          v-else
+          ref="suanliForm"
+          v-model="data.suanliValues"
+          :modelRef="selectedModel.modelRef ?? selectedModel.modelId"
+          :referenceText="suanliReferenceText"
+          :disabled="generating || deleting || uploading || editor?.busy" />
         <div class="promptFooter">
           <el-select
             v-if="editor?.mode !== 'inpaint'"
@@ -63,7 +70,7 @@
             :disabled="generating || deleting"
             placeholder="选择模型"
             aria-label="生成模型"
-            noDataText="请先在设置中添加图片模型"
+            noDataText="算力中台当前没有图片模型"
             placement="top-start"
             @visible-change="(visible) => visible && loadModels().catch((error) => showNodeError(error, '模型读取失败'))">
             <template #prefix><icon-sparkles :size="17" /></template>
@@ -76,7 +83,7 @@
             </el-option-group>
           </el-select>
           <generationSettings
-            v-if="editor?.mode !== 'inpaint'"
+            v-if="editor?.mode !== 'inpaint' && selectedModel?.providerId !== 'suanli'"
             v-model:size="data.size"
             v-model:ratio="data.ratio"
             :sizes="sizeOptions"
@@ -84,11 +91,11 @@
             :disabled="generating || deleting || !selectedModel" />
           <el-button v-if="editor?.mode === 'inpaint'" class="confirmButton" type="primary" :icon="IconCheck" :loading="editor.busy" :disabled="deleting || uploading || !generationPrompt" @click="confirmInpaint().catch(error => showNodeError(error, '重绘节点创建失败'))">确认</el-button>
           <div v-else class="generationActions">
-            <mediaPrice v-if="priceInput" :input="{ ...priceInput, mediaType: 'image' }" :supported="selectedModel?.supportsPrice === true" />
+            <mediaPrice v-if="priceInput && selectedModel?.providerId !== 'suanli'" :input="{ ...priceInput, mediaType: 'image' }" :supported="selectedModel?.supportsPrice === true" />
             <el-button
               class="sendButton"
               :icon="generating ? IconPlayerStop : IconArrowUp"
-              :disabled="deleting || uploading || (!generating && (editor?.busy || !generationPrompt || !selectedModel))"
+              :disabled="deleting || uploading || (!generating && (editor?.busy || !selectedModel || (selectedModel.providerId !== 'suanli' && !generationPrompt)))"
               :title="generating ? '停止生成' : '生成图片'"
               :aria-label="generating ? '停止生成' : '生成图片'"
               @click="generating ? generationController?.abort() : startGeneration().catch((error) => showNodeError(error, '图片生成失败'))" />
@@ -122,6 +129,7 @@ import promptInput from "@toonflow/node-shared/promptInput";
 import referenceItem from "@toonflow/node-shared/referenceItem";
 import mediaHistory from "@toonflow/node-shared/mediaHistory";
 import mediaPrice from "@toonflow/node-shared/mediaPrice";
+import suanliParamsForm from "@toonflow/node-shared/suanliParamsForm";
 import imageGridSplit from "@toonflow/node-image/imageGridSplit";
 import imageEditor from "@toonflow/node-image/imageEditor";
 import { buildInpaintRequest, useImageInpaint, type ImageInpaint } from "@toonflow/node-image/imageInpaint";
@@ -143,7 +151,7 @@ const { id, node, nodeProps, nodeEvent, outputs, files, ai, updateNodeInternals 
   label: "图片生成",
 });
 type PromptModel = NonNullable<InstanceType<typeof promptInput>["$props"]["modelValue"]>;
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; inpaintPrompt: string; inpaintPromptModel: PromptModel; model: string; size: string; ratio: string; inpaint?: ImageInpaint });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; inpaintPrompt: string; inpaintPromptModel: PromptModel; model: string; size: string; ratio: string; inpaint?: ImageInpaint; suanliValues?: { modelRef: string; values: Record<string, unknown> } });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.inpaintPrompt ??= "";
@@ -201,6 +209,9 @@ const generationPrompt = computed(() =>
     .filter(Boolean)
     .join("\n\n")
 );
+const suanliReferenceText = computed(() => refList.value.flatMap((item, index) =>
+  item.dataType === "STRING" && item.value?.trim() ? [`参考 ${index + 1}：\n${item.value.trim()}`] : []).join("\n\n"));
+const suanliForm = ref<InstanceType<typeof suanliParamsForm>>();
 const generationInput = computed<Omit<NodeImageRequest, "directory"> | undefined>(() => {
   const choice = selectedModel.value;
   if (!choice) return;
@@ -288,9 +299,9 @@ async function replaceOutput(event: Event) {
 function loadModels() {
   if (modelsRequest) return modelsRequest;
   modelsLoading.value = true;
-  modelsRequest = ai.getMediaModels().then((items) => {
+  modelsRequest = ai.getSuanliMediaModels("image").then((suanliModels) => {
     if (disposed || generating.value || deleting.value) return;
-    models.value = items.filter((item) => item.type === "image");
+    models.value = suanliModels;
     // ACT: 只给空配置选默认模型，保留暂时不可用的旧选择及其参数。
     if (!data.value.model) {
       const first = models.value[0];
@@ -318,6 +329,8 @@ async function confirmInpaint() {
 
 async function startGeneration() {
   const input = generationInput.value;
+  const suanli = selectedModel.value?.providerId === "suanli";
+  const suanliBody = suanli ? suanliForm.value?.getValues() : undefined;
   if (generating.value) throw new Error("图片正在生成，请等待完成");
   if (panorama.value?.visible) throw new Error("请先关闭全景图，再启动图片生成");
   if (uploading.value) throw new Error("图片正在替换，请等待完成");
@@ -326,10 +339,11 @@ async function startGeneration() {
   if (multiAngleVisible.value) throw new Error("请先退出多角度，再启动图片生成");
   if (editor.value?.busy || editor.value?.mode === "mark") throw new Error("请先完成图片标记");
   if (editor.value?.mode === "inpaint") throw new Error("请先确认局部重绘，再到子节点生成");
-  if (!generationPrompt.value) throw new Error("请输入生成提示词");
+  if (!suanli && !generationPrompt.value) throw new Error("请输入生成提示词");
   const references = refList.value.filter(item => !data.value.inpaint || item.dataType !== "IMAGE" || item.value?.url !== data.value.inpaint.source);
-  if (references.some(item => item.value === undefined)) throw new Error("引用节点暂无内容，请先补充引用内容");
+  if (!suanli && references.some(item => item.value === undefined)) throw new Error("引用节点暂无内容，请先补充引用内容");
   if (!input) throw new Error("请先选择图片模型");
+  if (suanli && data.value.inpaint) throw new Error("请先退出局部重绘，再使用算力模型生成");
   const workspace = files.getWorkspaceFiles();
   const controller = new AbortController();
   const inpaintData = data.value.inpaint;
@@ -338,9 +352,11 @@ async function startGeneration() {
   generation = generationState.run(() => workspace.list()
     .then(({ directory }) => {
       controller.signal.throwIfAborted();
-      return inpaintData
-        ? generateInpaint({ ...input, directory }, inpaintData, controller.signal)
-        : ai.generateImage({ ...input, directory }, controller.signal);
+      return suanli
+        ? ai.generateSuanliMedia("image", { directory, outputDirectory: input.outputDirectory, modelRef: selectedModel.value!.modelRef!, body: suanliBody! }, controller.signal)
+        : inpaintData
+          ? generateInpaint({ ...input, directory }, inpaintData, controller.signal)
+          : ai.generateImage({ ...input, directory }, controller.signal);
     })
     .then(([result]) => {
       controller.signal.throwIfAborted();

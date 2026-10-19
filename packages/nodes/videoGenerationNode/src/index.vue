@@ -50,7 +50,14 @@
         <div v-if="frameMode" class="referenceHint">
           {{ selectedMode === "startFrameOptional" ? "仅一张图片时作为尾帧；两张图片按顺序作为首帧、尾帧" : "图片引用按顺序作为首帧、尾帧" }}
         </div>
-        <promptInput v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" expandable />
+        <promptInput v-if="selectedModel?.providerId !== 'suanli'" v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" expandable />
+        <suanliParamsForm
+          v-else
+          ref="suanliForm"
+          v-model="data.suanliValues"
+          :modelRef="selectedModel.modelRef ?? selectedModel.modelId"
+          :referenceText="suanliReferenceText"
+          :disabled="generating || deleting || uploading" />
         <div class="promptFooter">
           <el-select
             v-model="data.model"
@@ -60,7 +67,7 @@
             :disabled="generating || deleting"
             placeholder="选择模型"
             aria-label="生成模型"
-            noDataText="请先在设置中添加视频模型"
+            noDataText="算力中台当前没有视频模型"
             placement="top-start"
             @visible-change="(visible) => visible && loadModels().catch((error) => showNodeError(error, '模型读取失败'))">
             <template #prefix><icon-sparkles :size="17" /></template>
@@ -73,6 +80,7 @@
             </el-option-group>
           </el-select>
           <generationSettings
+            v-if="selectedModel?.providerId !== 'suanli'"
             v-model:duration="data.duration"
             v-model:resolution="data.resolution"
             v-model:ratio="data.ratio"
@@ -82,11 +90,11 @@
             :model="selectedModel"
             :disabled="generating || deleting || !selectedModel" />
           <div class="generationActions">
-            <mediaPrice v-if="generationInput" :input="{ ...generationInput, mediaType: 'video' }" :supported="selectedModel?.supportsPrice === true" />
+            <mediaPrice v-if="generationInput && selectedModel?.providerId !== 'suanli'" :input="{ ...generationInput, mediaType: 'video' }" :supported="selectedModel?.supportsPrice === true" />
             <el-button
               class="sendButton"
               :icon="generating ? IconPlayerStop : IconArrowUp"
-              :disabled="deleting || uploading || (!generating && (!generationPrompt || !selectedModel))"
+              :disabled="deleting || uploading || (!generating && (!selectedModel || (selectedModel.providerId !== 'suanli' && !generationPrompt)))"
               :title="generating ? '停止生成' : '生成视频'"
               :aria-label="generating ? '停止生成' : '生成视频'"
               @click="generating ? generationController?.abort() : startGeneration().catch((error) => showNodeError(error, '视频生成失败'))" />
@@ -113,6 +121,7 @@ import videoActions from "@toonflow/node-video/videoActions";
 import referenceItem from "@toonflow/node-shared/referenceItem";
 import mediaHistory from "@toonflow/node-shared/mediaHistory";
 import mediaPrice from "@toonflow/node-shared/mediaPrice";
+import suanliParamsForm from "@toonflow/node-shared/suanliParamsForm";
 import generationSettings from "./components/generationSettings.vue";
 
 defineOptions({
@@ -128,7 +137,7 @@ const { id, node, nodeProps, nodeEvent, outputs, files, ai, updateNodeInternals 
   label: "视频生成",
 });
 type PromptModel = NonNullable<InstanceType<typeof promptInput>["$props"]["modelValue"]>;
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean; suanliValues?: { modelRef: string; values: Record<string, unknown> } });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.model ??= "";
@@ -214,6 +223,9 @@ const generationPrompt = computed(() =>
     .filter(Boolean)
     .join("\n\n")
 );
+const suanliReferenceText = computed(() => refList.value.flatMap((item, index) =>
+  item.dataType === "STRING" && item.value?.trim() ? [`参考 ${index + 1}：\n${item.value.trim()}`] : []).join("\n\n"));
+const suanliForm = ref<InstanceType<typeof suanliParamsForm>>();
 const generationInput = computed<Omit<NodeVideoRequest, "directory"> | undefined>(() => {
   const choice = selectedModel.value;
   if (!choice) return;
@@ -290,9 +302,9 @@ async function replaceOutput(event: Event) {
 function loadModels() {
   if (modelsRequest) return modelsRequest;
   modelsLoading.value = true;
-  modelsRequest = ai.getMediaModels().then((items) => {
+  modelsRequest = ai.getSuanliMediaModels("video").then((suanliModels) => {
     if (disposed || generating.value || deleting.value) return;
-    models.value = items.filter((item) => item.type === "video");
+    models.value = suanliModels;
     // ACT: 只给空配置选默认模型，保留暂时不可用的旧选择及其参数。
     if (!data.value.model) {
       const first = models.value[0];
@@ -308,13 +320,15 @@ function loadModels() {
 async function startGeneration() {
   const choice = selectedModel.value;
   const input = generationInput.value;
+  const suanli = choice?.providerId === "suanli";
+  const suanliBody = suanli ? suanliForm.value?.getValues() : undefined;
   if (generating.value) throw new Error("视频正在生成，请等待完成");
   if (uploading.value) throw new Error("视频正在替换，请等待完成");
   if (deleting.value) throw new Error("节点正在删除");
   if (!choice || !input) throw new Error("请先选择视频模型");
-  if (!generationPrompt.value) throw new Error("请输入生成提示词");
-  if (refList.value.some(item => item.value === undefined)) throw new Error("引用节点暂无内容，请先补充引用内容");
-  if (choice.mode?.length && !matchingModes.value.length) throw new Error("当前模型没有适合这些参考素材的生成模式，请更换模型或调整引用");
+  if (!suanli && !generationPrompt.value) throw new Error("请输入生成提示词");
+  if (!suanli && refList.value.some(item => item.value === undefined)) throw new Error("引用节点暂无内容，请先补充引用内容");
+  if (!suanli && choice.mode?.length && !matchingModes.value.length) throw new Error("当前模型没有适合这些参考素材的生成模式，请更换模型或调整引用");
   const workspace = files.getWorkspaceFiles();
   const controller = new AbortController();
   generationController = controller;
@@ -323,7 +337,9 @@ async function startGeneration() {
     .list()
     .then(({ directory }) => {
       controller.signal.throwIfAborted();
-      return ai.generateVideo({ ...input, directory }, controller.signal);
+      return suanli
+        ? ai.generateSuanliMedia("video", { directory, outputDirectory: input.outputDirectory, modelRef: choice!.modelRef!, body: suanliBody! }, controller.signal)
+        : ai.generateVideo({ ...input, directory }, controller.signal);
     })
     .then(([result]) => {
       controller.signal.throwIfAborted();

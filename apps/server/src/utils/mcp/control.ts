@@ -37,7 +37,9 @@ function allowedHost(req: Request) {
 }
 
 export function getAppOrigin(req: Request) {
-  const source = req.get("origin") ?? req.get("referer");
+  // ACT: 同源 GET 可能不带 Origin；SXWZ 页面禁用 Referer 时，以应用请求标记限定回退范围。
+  const source = req.get("origin") ?? req.get("referer")
+    ?? (req.get("x-toonflow-workspace") === "1" ? process.env.TOONFLOW_PUBLIC_URL ?? `${req.protocol}://${req.get("host")}` : undefined);
   if (!source || !allowedHost(req)) throw Object.assign(new Error("只允许 Toonflow 页面访问控制连接"), { status: 403 });
   let url: URL;
   try { url = new URL(source); }

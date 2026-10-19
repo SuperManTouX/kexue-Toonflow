@@ -23,7 +23,14 @@
       <div v-if="actions?.mode === 'speed'" ref="speedTarget" />
       <el-card v-else class="promptCard" shadow="never" :bodyStyle="{ padding: '14px 16px 12px' }">
         <referenceItem v-if="refList.length" v-model="refList" @preview="setReferencePreview" @remove="removeReference" />
-        <promptInput v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" placeholder="描述您想要的音频效果或输入待朗读文本" expandable />
+        <promptInput v-if="selectedModel?.providerId !== 'suanli'" v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" placeholder="描述您想要的音频效果或输入待朗读文本" expandable />
+        <suanliParamsForm
+          v-else
+          ref="suanliForm"
+          v-model="data.suanliValues"
+          :modelRef="selectedModel.modelRef ?? selectedModel.modelId"
+          :referenceText="suanliReferenceText"
+          :disabled="busy" />
         <div class="promptFooter">
           <el-select
             v-model="data.model"
@@ -33,7 +40,7 @@
             :disabled="busy"
             placeholder="选择模型"
             aria-label="音频生成模型"
-            noDataText="请先在设置中添加音频模型"
+            noDataText="算力中台当前没有音频模型"
             placement="top-start"
             @visible-change="visible => visible && loadModels().catch(error => showNodeError(error, '模型读取失败'))">
             <template #prefix><icon-music-bolt :size="17" /></template>
@@ -41,13 +48,13 @@
               <el-option v-for="item in provider.models" :key="item.modelId" :label="item.label" :value="JSON.stringify([item.providerId, item.modelId])" />
             </el-option-group>
           </el-select>
-          <generationSettings v-model:language="data.language" v-model:sampleRate="data.sampleRate" v-model:format="data.format" :disabled="busy || !selectedModel" />
+          <generationSettings v-if="selectedModel?.providerId !== 'suanli'" v-model:language="data.language" v-model:sampleRate="data.sampleRate" v-model:format="data.format" :disabled="busy || !selectedModel" />
           <div class="generationActions">
-            <mediaPrice v-if="generationInput" :input="{ ...generationInput, mediaType: 'audio' }" :supported="selectedModel?.supportsPrice === true" />
+            <mediaPrice v-if="generationInput && selectedModel?.providerId !== 'suanli'" :input="{ ...generationInput, mediaType: 'audio' }" :supported="selectedModel?.supportsPrice === true" />
             <el-button
               class="sendButton"
               :icon="generating ? IconPlayerStop : IconArrowUp"
-              :disabled="deleting || uploading || actions?.processing || (!generating && (!generationPrompt || !selectedModel))"
+              :disabled="deleting || uploading || actions?.processing || (!generating && (!selectedModel || (selectedModel.providerId !== 'suanli' && !generationPrompt)))"
               :title="generating ? '停止生成' : '生成音频'"
               :aria-label="generating ? '停止生成' : '生成音频'"
               @click="generating ? generationController?.abort() : startGeneration().catch(error => showNodeError(error, '音频生成失败'))" />
@@ -73,6 +80,7 @@ import audioActions from "@toonflow/node-audio/audioActions";
 import promptInput from "@toonflow/node-shared/promptInput";
 import referenceItem from "@toonflow/node-shared/referenceItem";
 import mediaPrice from "@toonflow/node-shared/mediaPrice";
+import suanliParamsForm from "@toonflow/node-shared/suanliParamsForm";
 import generationSettings from "./components/generationSettings.vue";
 import { formatOptions, languageOptions, sampleRateOptions } from "./audioSettings";
 
@@ -87,7 +95,7 @@ defineOptions({
 const vLoading = ElLoading.directive;
 const { id, node, nodeProps, nodeEvent, outputs, files, ai, updateNodeInternals } = useNode({ label: "音频生成" });
 type PromptModel = NonNullable<InstanceType<typeof promptInput>["$props"]["modelValue"]>;
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; model: string; language: string; sampleRate: number; format: string });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; model: string; language: string; sampleRate: number; format: string; suanliValues?: { modelRef: string; values: Record<string, unknown> } });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.model ??= "";
@@ -116,6 +124,9 @@ const selectedModel = computed(() => models.value.find(item => JSON.stringify([i
 const modelGroups = computed(() => groupNodeModels(models.value));
 const generationPrompt = computed(() => [data.value.prompt.trim(), ...refList.value.flatMap((item, index) =>
   item.dataType === "STRING" && item.value?.trim() ? [`参考 ${index + 1}：\n${item.value.trim()}`] : [])].filter(Boolean).join("\n\n"));
+const suanliReferenceText = computed(() => refList.value.flatMap((item, index) =>
+  item.dataType === "STRING" && item.value?.trim() ? [`参考 ${index + 1}：\n${item.value.trim()}`] : []).join("\n\n"));
+const suanliForm = ref<InstanceType<typeof suanliParamsForm>>();
 const generationInput = computed<Omit<NodeAudioRequest, "directory"> | undefined>(() => {
   const choice = selectedModel.value;
   if (!choice) return;
@@ -174,13 +185,13 @@ async function refreshProviderModels(event?: Event) {
 function loadModels() {
   if (modelsRequest) return modelsRequest;
   modelsLoading.value = true;
-  modelsRequest = ai.getMediaModels().then(items => {
+  modelsRequest = ai.getSuanliMediaModels("audio").then((suanliModels) => {
     if (disposed) return;
     if (busy.value) {
       modelsRefreshPending = true;
       return;
     }
-    models.value = items.filter(item => item.type === "audio");
+    models.value = suanliModels;
     // ACT: 仅空配置选择默认模型，临时不可用的模型保持原选择，避免静默换供应商。
     if (!data.value.model) {
       const first = models.value[0];
@@ -197,17 +208,21 @@ async function startGeneration() {
   if (busy.value || disposed) throw new Error("音频正在处理或节点已关闭，请稍后重试");
   const input = generationInput.value;
   if (!input) throw new Error("请先选择音频模型");
-  if (!generationPrompt.value) throw new Error("请输入生成提示词或待朗读文本");
-  if (!referencesAllowed(refList.value)) throw new Error("图片和音频不能同时引用，且合计最多引用一个；文本数量不限");
-  if (refList.value.some(item => item.value === undefined)) throw new Error("引用节点暂无内容，请先补充引用内容");
-  if (!languageOptions.some(item => item.value === data.value.language) || !sampleRateOptions.includes(data.value.sampleRate) || !formatOptions.includes(data.value.format)) throw new Error("请重新选择有效的语种、采样率和输出格式");
+  const suanli = selectedModel.value?.providerId === "suanli";
+  const suanliBody = suanli ? suanliForm.value?.getValues() : undefined;
+  if (!suanli && !generationPrompt.value) throw new Error("请输入生成提示词或待朗读文本");
+  if (!suanli && !referencesAllowed(refList.value)) throw new Error("图片和音频不能同时引用，且合计最多引用一个；文本数量不限");
+  if (!suanli && refList.value.some(item => item.value === undefined)) throw new Error("引用节点暂无内容，请先补充引用内容");
+  if (!suanli && (!languageOptions.some(item => item.value === data.value.language) || !sampleRateOptions.includes(data.value.sampleRate) || !formatOptions.includes(data.value.format))) throw new Error("请重新选择有效的语种、采样率和输出格式");
   const workspace = files.getWorkspaceFiles();
   const controller = new AbortController();
   generationController = controller;
   generation = generationState.run(async () => {
     const { directory } = await workspace.list();
     controller.signal.throwIfAborted();
-    const [result] = await ai.generateAudio({ ...input, directory }, controller.signal);
+    const result = suanli
+      ? await ai.generateSuanliMedia("audio", { directory, outputDirectory: input.outputDirectory, modelRef: selectedModel.value!.modelRef!, body: suanliBody! }, controller.signal).then(items => items[0])
+      : await ai.generateAudio({ ...input, directory }, controller.signal).then(items => items[0]);
     controller.signal.throwIfAborted();
     if (!result) throw new Error("供应商未返回音频");
     outputs.value.audio = { dataType: "AUDIO", value: { url: result.path, mimeType: result.mimeType } };

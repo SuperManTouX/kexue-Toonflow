@@ -1,13 +1,19 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { chmod, lstat, mkdir, readFile, writeAtomic } from "@toonflow/file";
+import type { SuanliIdentity } from "@/lib/userContext";
 import { z } from "zod";
 
 export type AuthUser = { id: string; name: string };
 export type ServiceKind = "mcp" | "a2a";
 const userSchema = z.object({ id: z.uuid(), name: z.string().min(1).max(256) });
+const suanliIdentitySchema = z.object({
+  userId: z.string().trim().min(1).max(256),
+  sessionId: z.string().trim().min(1).max(4096),
+  schoolId: z.string().trim().min(1).max(256).optional(),
+});
 const identitySchema = z.object({ users: z.record(z.string(), userSchema), credentials: z.record(z.string(), z.object({ userId: z.uuid(), kind: z.enum(["mcp", "a2a"]) })) });
-const sessionsSchema = z.record(z.string(), z.object({ userId: z.uuid(), expiresAt: z.number().finite() }));
+const sessionsSchema = z.record(z.string(), z.object({ userId: z.uuid(), expiresAt: z.number().finite(), suanliIdentity: suanliIdentitySchema.optional() }));
 let directory = "";
 let identityKey: Buffer;
 let identities: z.infer<typeof identitySchema> = { users: {}, credentials: {} };
@@ -66,7 +72,7 @@ export async function initializeAuthStorage(root: string) {
   identities = loadedIdentities.data;
   sessions = loadedSessions.data;
 }
-export function createStoredLogin(userName: string, externalSubject: string) {
+export function createStoredLogin(userName: string, externalSubject: string, suanliIdentity: SuanliIdentity) {
   return serialize(async () => {
     const subjectHash = createHmac("sha256", identityKey).update("sxwz\0").update(externalSubject).digest("hex");
     const user = { id: identities.users[subjectHash]?.id ?? randomUUID(), name: userName };
@@ -76,7 +82,7 @@ export function createStoredLogin(userName: string, externalSubject: string) {
     const sessionToken = randomBytes(32).toString("base64url");
     const expiresAt = Date.now() + sessionLifetime;
     const nextSessions = Object.fromEntries(Object.entries(sessions).filter(([, session]) => session.expiresAt > Date.now()));
-    nextSessions[hashCredential(sessionToken)] = { userId: user.id, expiresAt };
+    nextSessions[hashCredential(sessionToken)] = { userId: user.id, expiresAt, suanliIdentity };
     await writeAtomic(join(directory, "sessions.json"), JSON.stringify(nextSessions), { mode: 0o600 });
     sessions = nextSessions;
     return { user, sessionToken, expiresAt };
@@ -89,7 +95,7 @@ export async function resolveSession(token: string) {
   const session = sessions[sessionHash];
   if (!session || session.expiresAt <= Date.now()) return;
   const user = findUser(session.userId);
-  return user ? { user, sessionHash, expiresAt: session.expiresAt } : undefined;
+  return user ? { user, sessionHash, expiresAt: session.expiresAt, suanliIdentity: session.suanliIdentity } : undefined;
 }
 export async function findStoredUser(id: string) {
   await queue;

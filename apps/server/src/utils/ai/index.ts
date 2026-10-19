@@ -4,7 +4,10 @@ import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messag
 import { getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { Context, Model } from "@earendil-works/pi-ai";
 import { z } from "zod";
+import { getCurrentUser } from "@/lib/userContext";
 import getConfig from "@/utils/conf";
+import { getSuanliRuntimeConfig } from "@/utils/suanli/client";
+import { getSuanliModelByRef } from "@/utils/suanli/models";
 import { readReference } from "@/utils/media/generation";
 import modelContextLimits from "@/utils/ai/modelContextLimits";
 import { createFileTransport, getUnsupportedFileText, type FileProvider } from "@/utils/ai/files";
@@ -62,6 +65,21 @@ export function getConfiguredModel(providerId: string, modelId: string) {
   if (baseUrl.pathname === "/") baseUrl.pathname = "/v1";
   const limits = getModelLimits(providerId, model);
   return { provider, model: { ...model, contextWindow: limits.contextWindow, maxOutputTokens: limits.maxTokens }, baseUrl: baseUrl.href.replace(/\/+$/, "") };
+}
+
+export async function getAgentConfiguredModel(providerId: string, modelId: string) {
+  if (providerId !== "suanli") return getConfiguredModel(providerId, modelId);
+  const suanliModel = await getSuanliModelByRef(modelId, getCurrentUser().suanliIdentity);
+  if (suanliModel.kind.toLowerCase() !== "llm") throw Object.assign(new Error("非文本算力模型不能用于 Agent 对话"), { status: 400 });
+  const { apiKey, apiUrl } = getSuanliRuntimeConfig();
+  const limits = getModelLimits(providerId, { id: suanliModel.modelId, label: suanliModel.label });
+  const model = { id: suanliModel.modelRef, label: suanliModel.label, contextWindow: limits.contextWindow, maxOutputTokens: limits.maxTokens };
+  return {
+    provider: { apiUrl, apiKey, protocol: "openai-completions" as const, models: [model] },
+    model,
+    baseUrl: apiUrl,
+    suanliModel,
+  };
 }
 
 export function listAiModels() {

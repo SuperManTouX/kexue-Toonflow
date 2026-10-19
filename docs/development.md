@@ -121,6 +121,26 @@ bun run start:server
 
 Web 多用户服务按单进程运行。部署和重启时应保留同一 `TOONFLOW_DATA_DIR`，其中的认证密钥用于保持现有用户身份及会话映射。本节只适用于独立 Web 服务；桌面端和移动端沿用各自原有入口与数据行为。
 
+### 算力中台模型与图片任务
+
+SXWZ 多用户服务使用以下服务端环境变量。算力中台地址和凭证用于读取模型目录、发送 Agent 对话和创建任务；AIGC 地址只用于读取模型请求模板。OSS 配置是可选项，仅在使用包含必填图片字段的模型时需要；不配置时聊天和不依赖图片上传的任务仍可用：
+
+```sh
+SUANLI_BASE_URL=https://suanli.example.com
+SUANLI_API_TOKEN=<server-side-token>
+AIGC_BASE_URL=https://talkingdraw.xueai.art/aigc
+OSS_ENDPOINT=https://oss-cn-hangzhou.aliyuncs.com
+OSS_REGION=oss-cn-hangzhou
+OSS_BUCKET=<bucket-name>
+OSS_ACCESS_KEY_ID=<server-side-access-key>
+OSS_ACCESS_KEY_SECRET=<server-side-secret>
+OSS_PUBLIC_URL=https://assets.example.com
+```
+
+`SUANLI_BASE_URL` 只填写 HTTPS 根域名，不附加 `/suanli/v1`；服务端会拼接接口路径。`SUANLI_API_TOKEN` 必须由服务进程注入。`AIGC_BASE_URL` 可省略，默认使用上面列出的地址；如需覆盖，填写包含 `/aigc` 的基础路径。
+
+`OSS_ENDPOINT` 填 S3 兼容端点根地址，`OSS_REGION` 填该存储区域，`OSS_BUCKET`、访问密钥和 `OSS_PUBLIC_URL` 按部署环境提供。公开 URL 应指向该 bucket 的 URL 根路径或 CDN 前缀，并允许算力任务处理服务读取已上传对象。未配置或配置无效时，含必填 `imageUpload` 字段的模型会提示无法提交；OSS 密钥不会发送到浏览器，对象按 Toonflow 内部用户 ID 分目录保存。用户工作区、身份和会话数据仍保存在本地数据目录，不由 OSS 托管。
+
 ### 多语言维护
 
 语言字典与翻译运行时集中在 [`packages/i18n`](../packages/i18n/readme.md)。Web 的明确展示位置由 Vite 插件在编译时转换，业务源码可继续使用中文；动态文案使用 `t` / `msg` 标签模板。服务端使用请求语言上下文，避免并发请求之间串语言。

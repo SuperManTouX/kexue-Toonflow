@@ -1,9 +1,16 @@
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { getConfiguredModel } from "@/utils/ai";
+import { getAgentConfiguredModel } from "@/utils/ai";
+import type { SuanliModel } from "@/utils/suanli/types";
+
+const suanliModelsByRuntime = new WeakMap<object, SuanliModel>();
+
+export function getSuanliModelForRuntime(runtime: object) {
+  return suanliModelsByRuntime.get(runtime);
+}
 
 export async function createAgentModel(providerId: string, modelId: string, thinkingLevel = "off") {
-  const configured = getConfiguredModel(providerId, modelId);
+  const configured = await getAgentConfiguredModel(providerId, modelId);
   const { provider, model, baseUrl } = configured;
   const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, refreshOnCreate: false });
   runtime.registerProvider(providerId, {
@@ -18,5 +25,6 @@ export async function createAgentModel(providerId: string, modelId: string, thin
     }],
   });
   await runtime.setRuntimeApiKey(providerId, provider.apiKey);
+  if ("suanliModel" in configured) suanliModelsByRuntime.set(runtime, configured.suanliModel);
   return { ...configured, runtime };
 }

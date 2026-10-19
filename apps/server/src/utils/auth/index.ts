@@ -6,6 +6,7 @@ import { initializeAuthStorage, createStoredLogin, findServiceUser, hashCredenti
 import type { ServiceKind } from "./storage";
 
 export { getAuthMode, canManageHost, getCurrentUser, createUserContext, runWithUser } from "@/lib/userContext";
+export type { SuanliIdentity } from "@/lib/userContext";
 export { resolveSession, revokeSession, registerServiceCredential, findStoredUser, sessionLifetime } from "./storage";
 export type { AuthUser, ServiceKind } from "./storage";
 
@@ -26,7 +27,7 @@ export async function initializeAuth({ dataDirectory, mode }: { dataDirectory: s
 }
 export async function createLogin(token: string) {
   const identity = await verifyExternalToken(token);
-  return createStoredLogin(identity.userName, identity.externalSubject);
+  return createStoredLogin(identity.userName, identity.externalSubject, identity.suanliIdentity);
 }
 export async function resolveServiceCredential(kind: ServiceKind, token: string) {
   if (getAuthMode() !== "sxwz" || token.length < 32 || token.length > 8192) return;

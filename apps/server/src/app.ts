@@ -92,6 +92,8 @@ export async function createApp({
   app.use(authRequest);
   app.use("/api/auth/login", express.json({ limit: "12kb", verify: captureInternalRequestBody }));
   app.use("/a2a", express.json({ limit: "2mb", verify: captureInternalRequestBody }));
+  app.use("/api/suanli/upload", express.raw({ type: "application/octet-stream", limit: "20mb", verify: captureInternalRequestBody }));
+  app.use("/api/suanli/tasks", express.json({ limit: "1mb", verify: captureInternalRequestBody }));
   app.use(["/api/workspaces/files/write", "/api/assets/save"], express.raw({ type: "application/octet-stream", limit: "100mb", verify: captureInternalRequestBody }));
   app.use(express.json({ limit: "100mb", verify: captureInternalRequestBody }));
   app.use(express.urlencoded({ extended: true, limit: "100mb" }));
