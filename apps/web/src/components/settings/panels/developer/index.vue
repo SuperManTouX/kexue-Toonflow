@@ -24,7 +24,7 @@
         </div>
         <el-button :icon="IconFileText" :loading="openingUpdateBox" @click="openUpdateBox">查看更新说明</el-button>
       </div>
-      <div class="developerRow">
+      <div v-if="canManageHost" class="developerRow">
         <div class="toolDescription">
           <h3>供应商开发工具</h3>
           <p>授权读取本地供应商文件，调试生成接口与媒体结果。</p>
@@ -38,7 +38,7 @@
         </div>
         <el-button :icon="IconEdit" @click="systemPromptVisible = true">编辑提示词</el-button>
       </div>
-      <div v-if="!isRemoteConnection" class="developerRow">
+      <div v-if="canManageHost && !isRemoteConnection" class="developerRow">
         <div class="toolDescription">
           <h3>自定义更新源</h3>
           <p>填写更新清单和安装包所在的目录地址，保存后可在关于页选择。</p>
@@ -49,7 +49,7 @@
         </div>
       </div>
       <el-text v-if="!isRemoteConnection && updateUrlError" type="danger" role="alert">{{ updateUrlError }}</el-text>
-      <div v-if="!isRemoteConnection" class="pluginInstaller">
+      <div v-if="canManageHost && !isRemoteConnection" class="pluginInstaller">
         <div class="installerHeader">
           <h3>手动安装插件</h3>
           <el-select v-model="installType" class="typeSelect" :disabled="!!installing" aria-label="安装插件类型">
@@ -70,7 +70,7 @@
         <el-text v-if="installError" type="danger" role="alert">{{ installError }}</el-text>
         <el-text v-else-if="installedName" type="success" role="status">{{ installedName }} 已安装</el-text>
       </div>
-      <div class="storageManager">
+      <div v-if="canManageHost" class="storageManager">
         <div class="developerRow">
           <div class="toolDescription">
             <h3>浏览器持久缓存</h3>
@@ -121,6 +121,8 @@
 </template>
 
 <script setup lang="ts">
+import { canManageHost } from "@/lib/auth";
+import { appFetch } from "@/lib/auth";
 import { locale, msg, translate, type MessageDescriptor } from "@toonflow/i18n/vue";
 import { computed, defineAsyncComponent, ref, watch } from "vue";
 import { useRouter } from "vue-router";
@@ -245,10 +247,12 @@ const storageBusy = computed(() => importingStorage.value || writingStorage.valu
 const storageMessage = ref<string | MessageDescriptor>("");
 
 function readStorage() {
+  if (!canManageHost.value) return {};
   return Object.fromEntries(Object.keys(localStorage).map(key => [key, localStorage.getItem(key) ?? ""]));
 }
 
 function saveStorage(entries: [string, string | null][]) {
+  if (!canManageHost.value) throw new Error("Web 服务不使用共享浏览器缓存");
   const previous = entries.map(([key]) => [key, localStorage.getItem(key)] as const);
   try {
     for (const [key, value] of entries) {
@@ -303,6 +307,11 @@ async function exportStorage() {
 function loadStorage() {
   storageError.value = "";
   storageMessage.value = "";
+  if (!canManageHost.value) {
+    storageEntries.value = [];
+    editingKey.value = null;
+    return;
+  }
   try {
     storageEntries.value = Object.entries(readStorage()).sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => ({ key, value }));
     editingKey.value = null;
@@ -379,7 +388,7 @@ async function openDevTools() {
   opening.value = true;
   requestError.value = "";
   try {
-    const response = await fetch("/api/desktop/devtools", { method: "POST", headers: { "x-toonflow-desktop": "1", "Accept-Language": locale.value } });
+    const response = await appFetch("/api/desktop/devtools", { method: "POST", headers: { "x-toonflow-desktop": "1", "Accept-Language": locale.value } });
     if (!response.ok) throw new Error((await response.json()).message || "打开开发者工具失败，请重试。");
   } catch (error) {
     requestError.value = error instanceof Error ? error.message : "打开开发者工具失败，请重试。";

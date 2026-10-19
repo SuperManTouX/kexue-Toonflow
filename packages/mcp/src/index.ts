@@ -20,6 +20,7 @@ export type McpTool = {
 export type McpOptions = {
   getTools(): Promise<McpTool[]>;
   authorize(request: Request): boolean | Promise<boolean>;
+  getSessionScope?(request: Request): string;
   runInRequest?<T>(request: Request, operation: () => T): T;
   translate?(message: string | MessageDescriptor): string;
   translateError?(error: unknown): string;
@@ -97,14 +98,16 @@ export function createMcpRouter(options: McpOptions) {
         return;
       }
       const sessionId = request.get("mcp-session-id");
-      let transport = sessionId ? sessions.get(sessionId) : undefined;
+      const scope = options.getSessionScope?.(request) ?? "";
+      const sessionKey = (id: string) => JSON.stringify([scope, id]);
+      let transport = sessionId ? sessions.get(sessionKey(sessionId)) : undefined;
       if (!sessionId && isInitializeRequest(request.body)) {
         transport = new NodeStreamableHTTPServerTransport({
           sessionIdGenerator: randomUUID,
-          onsessioninitialized: id => { sessions.set(id, transport!); },
+          onsessioninitialized: id => { sessions.set(sessionKey(id), transport!); },
         });
         transport.onclose = () => {
-          if (transport?.sessionId) sessions.delete(transport.sessionId);
+          if (transport?.sessionId) sessions.delete(sessionKey(transport.sessionId));
         };
         await createServer().connect(transport);
       }

@@ -9,6 +9,7 @@ const chainNames = new Set<string>(chainMethods);
 const runNames = new Set<string>(runMethods);
 const queryNames = new Set<string>(queryMethods);
 type Listener = (...args: any[]) => void;
+type BrowserRequest = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 function snapshot<T>(value: T): T {
   return JSON.parse(JSON.stringify(value, (_key, item) => {
@@ -29,8 +30,8 @@ function remoteError(value: unknown) {
   return Object.assign(new Error(details.message || "FFmpeg 执行失败"), details);
 }
 
-async function request(input: BrowserFfmpegRequest, signal?: AbortSignal) {
-  const response = await fetch("/api/ffmpeg/execute", {
+async function sendRequest(input: BrowserFfmpegRequest, signal: AbortSignal | undefined, fetchRequest: BrowserRequest) {
+  const response = await fetchRequest("/api/ffmpeg/execute", {
     method: "POST", headers: { "Content-Type": "application/json", "x-toonflow-workspace": "1" },
     body: JSON.stringify(input), signal,
   });
@@ -39,7 +40,8 @@ async function request(input: BrowserFfmpegRequest, signal?: AbortSignal) {
 }
 
 /** 只传输 fluent 调用，执行库和媒体文件始终留在宿主。目录在创建工厂时固定。 */
-export async function createBrowserFfmpeg(directory: string, signal?: AbortSignal): Promise<BrowserFfmpegFactory> {
+export async function createBrowserFfmpeg(directory: string, signal?: AbortSignal, fetchRequest: BrowserRequest = fetch): Promise<BrowserFfmpegFactory> {
+  const request = (input: BrowserFfmpegRequest, requestSignal?: AbortSignal) => sendRequest(input, requestSignal, fetchRequest);
   signal?.throwIfAborted();
   const prepared = await request({ directory, requestId: crypto.randomUUID(), options: {}, calls: [], operation: { method: "prepare", args: [] } }, signal);
   const result = await prepared.json() as { code: number; message?: string };

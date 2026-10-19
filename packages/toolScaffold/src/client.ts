@@ -25,7 +25,7 @@ export async function loadToolComponent(toolName: string): Promise<Component | u
   const renderer = matches[0];
   if (!renderer) return;
   if (!/^[a-z][a-zA-Z0-9]*$/.test(renderer.name) ||
-    !new RegExp(`^/api/tools/client\\?name=${renderer.name}&version=[a-f0-9]{64}$`).test(renderer.url)) {
+    !new RegExp(`^/api/tools/client\\?name=${renderer.name}&version=[a-f0-9]{64}&toonflowUser=(?:local|[0-9a-f-]{36})$`).test(renderer.url)) {
     throw new Error("工具界面地址无效");
   }
   let pending = componentLoads.get(renderer.url);

@@ -4,7 +4,7 @@ import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messag
 import { getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { Context, Model } from "@earendil-works/pi-ai";
 import { z } from "zod";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
 import { readReference } from "@/utils/media/generation";
 import modelContextLimits from "@/utils/ai/modelContextLimits";
 import { createFileTransport, getUnsupportedFileText, type FileProvider } from "@/utils/ai/files";
@@ -52,7 +52,7 @@ export function getModelLimits(providerId: string, model: z.infer<typeof provide
 }
 
 export function getConfiguredModel(providerId: string, modelId: string) {
-  const providers = conf.get("settings", {}).customProviders;
+  const providers = getConfig().get("settings", {}).customProviders;
   const parsed = providerSchema.safeParse(Array.isArray(providers) ? providers.find(item => item?.id === providerId) : undefined);
   if (!parsed.success) throw Object.assign(new Error("请先在设置中配置模型供应商"), { status: 400 });
   const provider = parsed.data;
@@ -65,7 +65,7 @@ export function getConfiguredModel(providerId: string, modelId: string) {
 }
 
 export function listAiModels() {
-  const providers = conf.get("settings", {}).customProviders;
+  const providers = getConfig().get("settings", {}).customProviders;
   if (!Array.isArray(providers)) return [];
   return providers.flatMap(item => {
     const parsed = providerSchema.extend({ id: z.string().min(1), label: z.string() }).safeParse(item);

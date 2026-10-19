@@ -2,7 +2,8 @@ import { lstat, mkdir, readdir, rm, unlink, writeFile } from "@toonflow/file";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import type { AgentCard } from "@toonflow/teams-scaffold/a2a";
-import conf from "@/utils/conf";
+import getConfig, { isResourceEnabled, setResourceEnabled } from "@/utils/conf";
+import { canManageHost } from "@/lib/userContext";
 import { decodeText, skillPath } from "@/utils/plugins/install";
 import { resolveWorkspacePath, writeWorkspaceFile } from "@/utils/workspace/files";
 import { agentsDirectory, checkName, editablePath, maxBytes, readFiles, validateFiles, withTeamFiles } from "./files";
@@ -16,7 +17,7 @@ const require = createRequire(import.meta.url);
 
 export function getRemoteTeam(name: string) {
   checkName(name);
-  return conf.get("remoteConnections", {})[name];
+  return getConfig().get("remoteConnections", {})[name];
 }
 
 async function readSnapshot(name: string) {
@@ -24,9 +25,7 @@ async function readSnapshot(name: string) {
   const manifest = validateFiles(name, files);
   const readmePath = [...files.keys()].find(path => /^readme\.md$/i.test(path));
   const readme = readmePath ? decodeText(files.get(readmePath)!) : "";
-  const enabled = !(await lstat(resolve(agentsDirectory, `${name}.disabled`)).catch((error: NodeJS.ErrnoException) => {
-    if (error.code !== "ENOENT") throw error;
-  }));
+  const enabled = isResourceEnabled("agent", name);
   return { directory, manifest, files, readme, enabled };
 }
 
@@ -51,7 +50,7 @@ export async function listTeams() {
           loadError: translateMessage(error instanceof Error ? error.message : String(error)), kind: "local" as const });
       }
     }
-    const remote = Object.values(conf.get("remoteConnections", {})).map(({ name, cardUrl, card, enabled }) => ({
+    const remote = Object.values(getConfig().get("remoteConnections", {})).map(({ name, cardUrl, card, enabled }) => ({
       name, displayName: card.name, description: card.description, version: card.version, author: "", github: "", readme: "", enabled,
       loadError: "", kind: "remote" as const, cardUrl,
     }));
@@ -62,7 +61,7 @@ export async function listTeams() {
 export async function saveRemoteTeam(record: RemoteTeam) {
   checkName(record.name);
   return withTeamFiles(async () => {
-    const remotes = conf.get("remoteConnections", {});
+    const remotes = getConfig().get("remoteConnections", {});
     const locals = await readdir(agentsDirectory).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return [];
       throw error;
@@ -70,7 +69,7 @@ export async function saveRemoteTeam(record: RemoteTeam) {
     if ([...locals, ...Object.keys(remotes)].some(name => name.toLowerCase() === record.name.toLowerCase())) {
       throw Object.assign(new Error("已存在同名团队或远端连接"), { status: 409 });
     }
-    conf.set("remoteConnections", { ...remotes, [record.name]: record });
+    getConfig().set("remoteConnections", { ...remotes, [record.name]: record });
   });
 }
 
@@ -79,11 +78,15 @@ export async function setEnabled(name: string, enabled: boolean) {
   return withTeamFiles(async () => {
     const remote = getRemoteTeam(name);
     if (remote) {
-      conf.set("remoteConnections", { ...conf.get("remoteConnections", {}), [name]: { ...remote, enabled } });
+      getConfig().set("remoteConnections", { ...getConfig().get("remoteConnections", {}), [name]: { ...remote, enabled } });
       return;
     }
     const { files } = await readFiles(name);
     if (enabled) validateFiles(name, files);
+    if (!canManageHost()) {
+      setResourceEnabled("agent", name, enabled);
+      return;
+    }
     const path = resolve(agentsDirectory, `${name}.disabled`);
     const marker = await lstat(path).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
     if (marker && !marker.isFile()) throw Object.assign(new Error("团队状态文件无效"), { status: 409 });
@@ -97,9 +100,9 @@ export async function uninstall(name: string) {
   return withTeamFiles(async () => {
     const remote = getRemoteTeam(name);
     if (remote) {
-      const remotes = { ...conf.get("remoteConnections", {}) };
+      const remotes = { ...getConfig().get("remoteConnections", {}) };
       delete remotes[name];
-      conf.set("remoteConnections", remotes);
+      getConfig().set("remoteConnections", remotes);
       return;
     }
     const { directory, files } = await readFiles(name);

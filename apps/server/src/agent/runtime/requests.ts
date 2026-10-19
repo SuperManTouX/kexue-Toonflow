@@ -6,7 +6,7 @@ import { getAgentImageReference, getOffloadedImageText, readAgentImage, saveAgen
 import type { AgentImageReference } from "@/agent/runtime/imageAttachments";
 import { getRequestFiles, type RequestFile } from "@/utils/ai/requestFiles";
 import { createFileTransport, FileRequestLimitError } from "@/utils/ai/files";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
 
 function contentHash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -103,7 +103,7 @@ export function configureAgentRequests(session: AgentSession, limits?: { maxRequ
       let partial: AssistantMessage | undefined;
       try {
         if (toolFailure) { const { error } = toolFailure; toolFailure = undefined; throw error; }
-        const providers = conf.get("settings", {}).customProviders;
+        const providers = getConfig().get("settings", {}).customProviders;
         const provider = Array.isArray(providers) ? providers.find(item => item?.id === model.provider) : undefined;
         const auth = await session.modelRuntime.getAuth(model, { apiKey: options?.apiKey, env: options?.env, signal: options?.signal });
         const apiKey = options?.apiKey ?? auth?.auth.apiKey;

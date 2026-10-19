@@ -1,7 +1,7 @@
 import { open, stat, withFileAccess } from "@toonflow/file";
 import type { ProviderPriceReference } from "@toonflow/providers";
 import type { MediaReference } from "@toonflow/tools-scaffold/runtime";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
 import { getStatus } from "@/utils/ffmpeg";
 import { resolveWorkspacePath } from "@/utils/workspace/files";
 
@@ -91,7 +91,7 @@ async function loadPriceReference(cwd: string, reference: MediaReference, mediaT
   const info = await stat(path);
   signal?.throwIfAborted();
   if (!info.isFile() || !info.size || info.size > 100 * 1024 * 1024) throw new Error("参考媒体须为不超过 100 MB 的非空文件");
-  const config = JSON.stringify(conf.get("settings", {}).ffmpeg ?? {});
+  const config = JSON.stringify(getConfig().get("settings", {}).ffmpeg ?? {});
   const key = JSON.stringify([path, reference.mimeType, mediaType, config]);
   const revision = `${info.mtimeMs}:${info.ctimeMs}:${info.size}`;
   const now = Date.now();

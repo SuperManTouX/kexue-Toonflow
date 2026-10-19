@@ -10,6 +10,11 @@ const router = Router();
 
 export default router.put("/", validateFields({ name: z.string().regex(/^[a-z][a-zA-Z0-9]*$/), enabled: z.boolean() }), async (req, res) => {
   const { name, enabled } = req.body as { name: string; enabled: boolean };
+  if (!u.auth.canManageHost()) {
+    await u.nodePlugins.readNode(name);
+    u.setResourceEnabled("node", name, enabled);
+    return res.json(success({ name, enabled }));
+  }
   const nodesDirectory = resolve(dirname(u.conf.path), "nodes");
   const file = await lstat(resolve(nodesDirectory, `${name}.umd.js`)).catch((err: NodeJS.ErrnoException) => {
     if (err.code === "ENOENT") return null;

@@ -85,6 +85,7 @@
 </template>
 
 <script setup lang="ts">
+import { apiUrl } from "@/lib/auth";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import axios from "axios";
 import { ElMessage, ElTree, type InputInstance, type TreeNodeData } from "element-plus";
@@ -122,7 +123,7 @@ let loadRequest = 0;
 onBeforeUnmount(() => { loadRequest++; });
 
 function assetUrl(path: string) {
-  return `/api/assets/read?path=${encodeURIComponent(path)}`;
+  return apiUrl(`/api/assets/read?path=${encodeURIComponent(path)}`);
 }
 
 function mediaKind(entry: AssetEntry) {

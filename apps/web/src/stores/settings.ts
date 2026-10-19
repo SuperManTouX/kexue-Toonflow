@@ -1,4 +1,5 @@
 import axios from "axios";
+import { canManageHost } from "@/lib/auth";
 import { normalizeLocale } from "@toonflow/i18n";
 import { computed, nextTick, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
@@ -17,7 +18,7 @@ export const settingsStorage = {
   getItem(key: string) {
     const stores = settings.value.stores as Record<string, unknown> | undefined;
     if (stores && Object.hasOwn(stores, key)) return JSON.stringify(stores[key]);
-    // ACT: 只迁移当前来源可读取的旧缓存，保留原值；不同端口的 localStorage 不能互读。
+    if (!canManageHost.value) return null;
     const value = localStorage.getItem(key);
     if (value !== null) settingsStorage.setItem(key, value);
     return value;

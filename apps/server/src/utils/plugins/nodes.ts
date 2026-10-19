@@ -1,11 +1,12 @@
+import { getSharedDataDirectory } from "@/lib/userContext";
 import { t, translateMessage } from "@/lib/i18n";
 import { lstat, readFile } from "@toonflow/file";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
 
 export const nodeNameSchema = z.string().max(96).regex(/^[a-z][a-zA-Z0-9]*$/);
-export const nodesDirectory = resolve(dirname(conf.path), "nodes");
+export const nodesDirectory = resolve(getSharedDataDirectory(), "nodes");
 export const configRulesSchema = z.array(z.record(z.string(), z.json())).max(100);
 type ConfigRule = z.infer<typeof configRulesSchema>[number];
 
@@ -65,7 +66,7 @@ export function declaredConfig(rules: ConfigRule[], config: Record<string, unkno
 }
 
 export function getNodeConfig(node: { name: string; configRules: ConfigRule[] }) {
-  const configs = conf.get("nodeConfigs", {});
+  const configs = getConfig().get("nodeConfigs", {});
   return declaredConfig(node.configRules, Object.hasOwn(configs, node.name) ? configs[node.name]! : {});
 }
 

@@ -12,7 +12,7 @@ export default Router().put("/", validateFields({
   modelId: z.string().max(256),
   thinkingLevel: z.enum(["off", "low", "medium", "high"]).optional(),
 }), async (req, res) => {
-  if (!u.workspace.isLocalWorkspaceRequest(req)) return res.status(403).json(error("请在桌面端或服务器本机管理 A2A 设置", null, 403));
+  if (!u.workspace.canConfigureUser(req)) return res.status(403).json(error("无法管理 A2A 设置", null, 403));
   const { enabled, providerId, modelId, thinkingLevel = "off" } = req.body;
   let directory = req.body.directory as string;
   // ACT: 关闭入口不依赖旧目录或模型仍存在；重新开启时再次严格校验。
@@ -23,6 +23,7 @@ export default Router().put("/", validateFields({
   const previous = u.a2aSettings.getA2aSettings();
   const token = previous.token.length >= 32 ? previous.token : enabled ? randomBytes(32).toString("hex") : "";
   const settings = { enabled, directory, providerId, modelId, thinkingLevel, token };
+  if (!u.auth.canManageHost()) await u.auth.registerServiceCredential(u.auth.getCurrentUser().userId, "a2a", enabled ? token : undefined);
   u.conf.set("a2a", settings);
   res.set("Cache-Control", "no-store").json(success({ ...settings, token: token || undefined, url: u.a2aSettings.getA2aUrl(req) }));
 });

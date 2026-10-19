@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { getCurrentUser } from "@/lib/userContext";
 import { Artifact, createTeamAgentCard, createTeamA2aRouter, type TeamA2aRequest } from "@toonflow/teams-scaffold/a2a";
 import { teamNameSchema } from "@toonflow/teams-scaffold/runtime";
 import type { CanvasContext } from "@toonflow/tools-scaffold/runtime";
@@ -16,8 +17,9 @@ export function createA2aRouter() {
     try {
       if (!getA2aSettings().enabled) { res.sendStatus(404); return; }
       const name = teamNameSchema.parse(req.params.name);
+      const endpointKey = JSON.stringify([getCurrentUser().userId, name]);
       const configurationSignal = getA2aSignal();
-      let endpoint = endpoints.get(name);
+      let endpoint = endpoints.get(endpointKey);
       // 已接收任务的查询和取消继续交给 SDK；禁用/卸载只阻止 execute 接收新消息。
       if (endpoint?.signal === configurationSignal && req.method === "POST") { endpoint.router(req, res, next); return; }
       const team = await readTeam(name);
@@ -69,8 +71,8 @@ export function createA2aRouter() {
           card, authenticate: authenticateA2a, execute,
           onCancel: taskId => { pending.delete(taskId); },
         }) };
-        endpoints.set(name, endpoint);
-        configurationSignal.addEventListener("abort", () => { pending.clear(); endpoints.delete(name); }, { once: true });
+        endpoints.set(endpointKey, endpoint);
+        configurationSignal.addEventListener("abort", () => { pending.clear(); endpoints.delete(endpointKey); }, { once: true });
       } else Object.assign(endpoint.card, card);
       endpoint.router(req, res, next);
     } catch (error) { next(error); }

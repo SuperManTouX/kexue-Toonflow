@@ -1,3 +1,4 @@
+import { hostRequest } from "./hostRequest";
 import { onScopeDispose } from "vue";
 import { runAgentLoop, type AgentTool, type AgentToolResult } from "@earendil-works/pi-agent-core";
 import { createAssistantMessageEventStream, type AssistantMessage, type Context, type Message, type Model } from "@earendil-works/pi-ai";
@@ -98,7 +99,7 @@ async function readModels<T>(url: string, signal: AbortSignal): Promise<T[]> {
   signal.throwIfAborted();
   let pending = modelCache.get(url);
   if (!pending) {
-    const request = fetch(url, { cache: "no-store" }).then(readResult<unknown[]>).catch(error => {
+    const request = hostRequest(url, { cache: "no-store" }).then(readResult<unknown[]>).catch(error => {
       if (modelCache.get(url) === request) modelCache.delete(url);
       throw error;
     });
@@ -127,7 +128,7 @@ async function requestModel(input: NodeAiRequest, context: Context, model: Model
   const stream = createAssistantMessageEventStream();
   try {
     signal.throwIfAborted();
-    const response = await fetch("/api/ai/generate", {
+    const response = await hostRequest("/api/ai/generate", {
       method: "POST", headers: { "Content-Type": "application/json", "x-toonflow-workspace": "1" },
       body: JSON.stringify({ providerId, modelId, context, directory, references }), signal,
     });
@@ -215,7 +216,7 @@ export function useNodeAi() {
         || ("firstFrame" in input && input.firstFrame) || ("lastFrame" in input && input.lastFrame));
       const pending = { expires: Infinity, value: Promise.resolve<NodeMediaPrice | null>(null) };
       // ACT: 最多缓存 500 条 / 30 秒；参考文件没有前端修订号，只合并进行中的查询，避免同路径覆盖后复用旧价。
-      pending.value = fetch("/api/ai/media/price", {
+      pending.value = hostRequest("/api/ai/media/price", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-toonflow-workspace": "1" },
         body: JSON.stringify(input),
@@ -248,7 +249,7 @@ export function useNodeAi() {
   }
 
   async function generateMedia<T extends "image" | "video" | "audio">(mediaType: T, input: NodeImageRequest | NodeVideoRequest | NodeAudioRequest, signal?: AbortSignal) {
-    return readResult<{ path: string; mimeType: string; mediaType: T }[]>(await fetch("/api/ai/media/generate", {
+    return readResult<{ path: string; mimeType: string; mediaType: T }[]>(await hostRequest("/api/ai/media/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-toonflow-workspace": "1" },
       body: JSON.stringify({ ...input, mediaType }),

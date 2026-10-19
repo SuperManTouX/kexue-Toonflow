@@ -7,7 +7,7 @@ import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto
 import { hostname, networkInterfaces } from "node:os";
 import { isAbsolute, posix } from "node:path";
 import { realpath, stat } from "@toonflow/file";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
 import { errorFromCause } from "@/lib/responseFormat";
 
 export type MobileLinkConfig = {
@@ -37,7 +37,7 @@ function getRuntime(app: Application) {
 }
 
 export function getMobileLinkConfig(): MobileLinkConfig {
-  return conf.get("mobileLink", { enabled: false, port: 43123, publicUrl: "", directories: [], devices: [] });
+  return getConfig().get("mobileLink", { enabled: false, port: 43123, publicUrl: "", directories: [], devices: [] });
 }
 
 export function isMobileLinkRequest(req: Request) {
@@ -65,7 +65,7 @@ export function getMobileLinkStatus(app: Application) {
     .filter(entry => entry.family === "IPv4" && !entry.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(entry.address))
     .sort((left, right) => Number(right.address.startsWith("192.168.")) - Number(left.address.startsWith("192.168.")))
     .map(entry => `http://${entry.address}:${config.port}`);
-  return { initialized: conf.has("mobileLink"), enabled, hubEnabled: config.enabled || enabled, pairingAvailable: enabled && Boolean(runtime.pairing), port: config.port,
+  return { initialized: getConfig().has("mobileLink"), enabled, hubEnabled: config.enabled || enabled, pairingAvailable: enabled && Boolean(runtime.pairing), port: config.port,
     addresses: [...new Set(addresses)], publicUrl: config.publicUrl, directories: config.directories, appVersion: app.locals.appVersion,
     devices: config.devices.map(({ id, name }) => {
       const seen = runtime.lastSeen.get(id);
@@ -155,7 +155,7 @@ export function stopMobileLinkRuntime(app: Application) {
 
 export function suspendMobileLinkRuntime(app: Application) {
   // 切为客户端后不自动恢复共享；回到独立运行时由用户重新开启。
-  if (getMobileLinkConfig().enabled) conf.set("mobileLink", { ...getMobileLinkConfig(), enabled: false });
+  if (getMobileLinkConfig().enabled) getConfig().set("mobileLink", { ...getMobileLinkConfig(), enabled: false });
   stopMobileLinkRuntime(app);
 }
 
@@ -185,7 +185,7 @@ export async function configureMobileLink(app: Application, value: Omit<MobileLi
     const replaceListener = value.enabled && (!runtime.listener || config.port !== value.port);
     if (replaceListener) listener = await listen(app, value.port);
     if (!runtime.supported) throw Object.assign(new Error("设备互联已停止"), { status: 503 });
-    conf.set("mobileLink", { ...getMobileLinkConfig(), enabled: value.enabled, port: value.port, publicUrl, directories: [...new Set(directories)] });
+    getConfig().set("mobileLink", { ...getMobileLinkConfig(), enabled: value.enabled, port: value.port, publicUrl, directories: [...new Set(directories)] });
     runtime.pairing = undefined;
     runtime.lastSeen.clear();
     if (!value.enabled || replaceListener) {
@@ -245,13 +245,13 @@ export function pairMobileDevice(req: Request, code: string, name: string) {
   const deviceToken = randomBytes(32).toString("base64url");
   const config = getMobileLinkConfig();
   config.devices.push({ id: crypto.randomUUID(), name: name.trim(), tokenHash: digest(deviceToken) });
-  conf.set("mobileLink", config);
+  getConfig().set("mobileLink", config);
   return { deviceToken, name: hostname(), appVersion: req.app.locals.appVersion };
 }
 
 export function revokeMobileDevice(app: Application, id: string) {
   const config = getMobileLinkConfig();
-  conf.set("mobileLink", { ...config, devices: config.devices.filter(item => item.id !== id) });
+  getConfig().set("mobileLink", { ...config, devices: config.devices.filter(item => item.id !== id) });
   const runtime = getRuntime(app);
   runtime.lastSeen.delete(id);
   for (const [socket, devices] of runtime.listener?.sockets ?? []) if (devices.has(id)) socket.destroy();

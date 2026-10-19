@@ -1,13 +1,14 @@
+import { canManageHost, getSharedDataDirectory } from "@/lib/userContext";
 import { t, translateError, translateMessage } from "@/lib/i18n";
 import { dirname, join } from "node:path";
 import { build, createFfmpeg, downloadSources, getToolStatus, installFfmpeg, target } from "@toonflow/ffmpeg";
 import type { DownloadState, FfmpegMode, SourceId } from "@toonflow/ffmpeg";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
 import { getRuntimePlatform } from "@/lib/platform";
 
 export { executeRemoteFfmpeg } from "@toonflow/ffmpeg";
 
-const directory = join(dirname(conf.path), "ffmpeg", target);
+const directory = join(getSharedDataDirectory(), "ffmpeg", target);
 let download: DownloadState = { phase: "idle", received: 0 };
 let downloadError: unknown;
 // ACT: 沿用 server 单进程模型，每次只下载一套程序；不持久化运行中的任务。
@@ -19,19 +20,28 @@ export function onRequired(listener: () => void) {
   return () => { requiredListeners.delete(listener); };
 }
 
-export async function createWorkspaceFfmpeg(cwd: string, signal?: AbortSignal) {
+export async function ensureFfmpegAvailable(signal?: AbortSignal) {
   signal?.throwIfAborted();
   const { tools } = await getStatus();
   signal?.throwIfAborted();
-  if (!tools.ffmpeg.path || tools.ffmpeg.error || !tools.ffprobe.path || tools.ffprobe.error) {
+  const ffmpegPath = tools.ffmpeg.path;
+  const ffprobePath = tools.ffprobe.path;
+  if (!ffmpegPath || tools.ffmpeg.error || !ffprobePath || tools.ffprobe.error) {
     for (const listener of requiredListeners) listener();
     throw Object.assign(new Error("当前操作需要 FFmpeg，请在插件市场下载安装或配置可用版本后重试。"), {
       name: "FfmpegRequiredError", code: "FFMPEG_REQUIRED", status: 424,
     });
   }
+  return { ffmpegPath, ffprobePath };
+}
+
+export async function createWorkspaceFfmpeg(cwd: string, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  if (!canManageHost()) throw Object.assign(new Error("多用户 Web 服务暂不允许执行 FFmpeg 任务"), { status: 403 });
+  const tools = await ensureFfmpegAvailable(signal);
   const ffmpeg = createFfmpeg(cwd);
-  ffmpeg.setFfmpegPath(tools.ffmpeg.path);
-  ffmpeg.setFfprobePath(tools.ffprobe.path);
+  ffmpeg.setFfmpegPath(tools.ffmpegPath);
+  ffmpeg.setFfprobePath(tools.ffprobePath);
   return ffmpeg;
 }
 
@@ -40,7 +50,7 @@ export function getProgress() {
 }
 
 export async function getStatus() {
-  const raw = conf.get("settings", {}).ffmpeg;
+  const raw = getConfig().get("settings", {}).ffmpeg;
   const value = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
   const mode: FfmpegMode = value.mode === "download" || value.mode === "system" ? value.mode : "auto";
   const source = downloadSources.find(item => item.id === value.source)?.id ?? "npmmirror";

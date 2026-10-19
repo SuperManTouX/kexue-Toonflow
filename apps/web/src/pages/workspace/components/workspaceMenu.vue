@@ -2,6 +2,7 @@
   <div class="workspaceMenu">
     <el-card shadow="never" :bodyStyle="{ padding: '3px 6px' }">
       <div class="menuContent">
+        <el-button v-if="!canManageHost" text @click="logout">退出登录</el-button>
         <el-button class="toolButton" text aria-label="退出项目" title="退出项目" @click="exitVisible = true">
           <icon-logout :size="18" aria-hidden="true" />
         </el-button>
@@ -23,6 +24,7 @@
 </template>
 
 <script setup lang="ts">
+import { canManageHost, logout } from "@/lib/auth";
 import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { IconLogout, IconSettings } from "@tabler/icons-vue";

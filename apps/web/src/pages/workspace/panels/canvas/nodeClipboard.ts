@@ -1,6 +1,7 @@
 import type { Edge, GraphEdge, GraphNode, Node } from "@vue-flow/core";
 import { isNodeOutput } from "@toonflow/nodes-scaffold/values";
 import { writeClipboardText } from "@/lib/clipboard";
+import { authState } from "@/lib/auth";
 
 export const nodeClipboardCommand = /^toonflow:paste-node:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -9,7 +10,10 @@ type ClipboardEntry = { command: string; directory: string; node?: ClipboardNode
 
 async function openClipboardDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open("toonflow.nodeClipboard", 1);
+    const { mode, user } = authState.value;
+    if (mode === "sxwz" && !user) return reject(new Error("请先登录"));
+    const name = mode === "sxwz" ? `toonflow.nodeClipboard:${user!.id}` : "toonflow.nodeClipboard";
+    const request = indexedDB.open(name, 1);
     request.onupgradeneeded = () => request.result.createObjectStore("nodes");
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);

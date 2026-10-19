@@ -11,11 +11,7 @@ export default Router().get("/", validateFields({
   version: z.string().regex(/^[a-f0-9]{64}$/),
 }, "query"), async (req, res) => {
   const { name, version } = req.query as { name: string; version: string };
-  const disabled = await lstat(resolve(u.plugins.toolsDirectory, `${name}.disabled`)).catch((err: NodeJS.ErrnoException) => {
-    if (err.code === "ENOENT") return null;
-    throw err;
-  });
-  if (disabled) return res.status(404).json(error("工具已禁用", null, 404));
+  if (!u.isResourceEnabled("tool", name)) return res.status(404).json(error("工具已禁用", null, 404));
   const tool = await u.plugins.readTool(name).catch((err: NodeJS.ErrnoException) => {
     if (err.code === "ENOENT") return null;
     throw err;
@@ -27,5 +23,5 @@ export default Router().get("/", validateFields({
   }
   const styleId = JSON.stringify(`toonflowToolStyle:${name}`);
   const style = `\n;(() => { const id = ${styleId}; let style = document.getElementById(id); if (!style) { style = document.createElement("style"); style.id = id; document.head.append(style); } style.textContent = ${JSON.stringify(client.css)}; })();\n`;
-  res.set("Cache-Control", "no-cache").type("application/javascript").send(client.code + style);
+  res.set("Cache-Control", u.auth.canManageHost() ? "no-cache" : "private, no-store").type("application/javascript").send(client.code + style);
 });

@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { file } from "@toonflow/file/bun";
 import type { Request } from "express";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
 import type { DesktopRuntime, desktopUpdateAttempt, updateSnapshot } from "@/types/desktop";
 
 const updateBaseUrls = {
@@ -13,18 +13,18 @@ let cancelledUpdateAttempt: string | undefined;
 
 function getInstallFailure(local: Awaited<ReturnType<DesktopRuntime["updater"]["getLocalInfo"]>>, applyError?: string): updateSnapshot["installFailure"] {
   if (local.channel === "dev") return;
-  const attempt = conf.get("desktopUpdateAttempt");
+  const attempt = getConfig().get("desktopUpdateAttempt");
   if (!attempt) return;
   if (typeof attempt !== "object" || ![attempt.attemptId, attempt.runtimeId, attempt.channel, attempt.targetVersion, attempt.targetHash]
     .every(value => typeof value === "string" && value.length > 0 && value.length <= 512)
     || (attempt.failure !== undefined && typeof attempt.failure !== "string")) {
-    try { conf.delete("desktopUpdateAttempt"); }
+    try { getConfig().delete("desktopUpdateAttempt"); }
     catch (error) { console.error("清理无效更新核验记录失败：", error); }
     return;
   }
   if (attempt.attemptId === cancelledUpdateAttempt) {
     // 取消时可能遇到短暂写锁；后续只读回查继续清理，不能误报为安装失败。
-    try { conf.delete("desktopUpdateAttempt"); }
+    try { getConfig().delete("desktopUpdateAttempt"); }
     catch (error) { console.error("清理已取消更新核验记录失败：", error); }
     return;
   }
@@ -33,7 +33,7 @@ function getInstallFailure(local: Awaited<ReturnType<DesktopRuntime["updater"]["
   try {
     Bun.semver.order(attempt.targetVersion, attempt.targetVersion);
   } catch {
-    try { conf.delete("desktopUpdateAttempt"); }
+    try { getConfig().delete("desktopUpdateAttempt"); }
     catch (error) { console.error("清理无效更新核验记录失败：", error); }
     return;
   }
@@ -42,14 +42,14 @@ function getInstallFailure(local: Awaited<ReturnType<DesktopRuntime["updater"]["
   catch { /* 本地版本异常也属于核验失败，保留合法的更新目标。 */ }
   if (local.channel === attempt.channel && (local.version === attempt.targetVersion && local.hash === attempt.targetHash
     || installedNewerVersion)) {
-    try { conf.delete("desktopUpdateAttempt"); }
+    try { getConfig().delete("desktopUpdateAttempt"); }
     catch (error) { console.error("清理已完成更新核验记录失败：", error); }
     return;
   }
   const message = attempt.failure || applyError || "更新重启后的版本或构建号与目标不一致，请下载完整安装包重新安装。";
   if (!attempt.failure) {
     // ACT: 磁盘满或权限异常时，已有目标仍足以显示完整安装指引，补记失败不能阻断状态查询。
-    try { conf.set("desktopUpdateAttempt", { ...attempt, failure: message }); }
+    try { getConfig().set("desktopUpdateAttempt", { ...attempt, failure: message }); }
     catch (error) { console.error("保存更新核验失败信息失败：", error); }
   }
   return {
@@ -82,7 +82,7 @@ export function isValidUpdateUrl(value: unknown): value is string {
 }
 
 function getUpdateBaseUrl(): string {
-  const settings = conf.get("settings", {});
+  const settings = getConfig().get("settings", {});
   if (settings.desktopUpdateSource === "github") return updateBaseUrls.github;
   if (settings.desktopUpdateSource === "custom" && isValidUpdateUrl(settings.desktopUpdateCustomUrl)) return settings.desktopUpdateCustomUrl;
   return updateBaseUrls.official;
@@ -254,7 +254,7 @@ export async function applyDesktopUpdate(req: Request): Promise<void> {
     if (!target?.version || !target.hash) throw new Error("更新包缺少目标版本或构建号，请重新下载。");
     attempt = { attemptId: crypto.randomUUID(), runtimeId: updateRuntimeId, channel: local.channel, targetVersion: target.version, targetHash: target.hash };
     // ACT: SDK 可能直接退出进程，必须在交接前写入 app 外的数据目录。
-    conf.set("desktopUpdateAttempt", attempt);
+    getConfig().set("desktopUpdateAttempt", attempt);
     await withUpdateSource(updater, updateBaseUrl, () => updater.applyUpdate!());
     const error = updater.updateInfo()?.error;
     if (error) throw new Error(error);
@@ -268,7 +268,7 @@ export async function applyDesktopUpdate(req: Request): Promise<void> {
       // ACT: 短暂写锁仅重试一次，后续查询可补清理；退出前仍不可写时无法跨进程确认取消。
       for (let retry = 0; retry < 2; retry++) {
         try {
-          if (conf.get("desktopUpdateAttempt")?.attemptId === attempt.attemptId) conf.delete("desktopUpdateAttempt");
+          if (getConfig().get("desktopUpdateAttempt")?.attemptId === attempt.attemptId) getConfig().delete("desktopUpdateAttempt");
           break;
         } catch (cleanupError) {
           if (retry === 0) await Bun.sleep(100);

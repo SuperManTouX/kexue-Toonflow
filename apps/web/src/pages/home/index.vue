@@ -3,10 +3,11 @@
     <bg class="pageBackground" />
     <el-header class="pageHeader">
       <div class="headerActions">
+        <el-button v-if="!canManageHost" round size="large" @click="logout">退出登录</el-button>
         <el-badge isDot :hidden="!hasDesktopUpdate">
           <el-button round size="large" :icon="IconSettings" :aria-label="hasDesktopUpdate ? '设置，有新版本可用' : '设置'" @click="settingsVisible = true">设置</el-button>
         </el-badge>
-        <el-button round size="large" :type="deviceHubEnabled ? 'success' : undefined" :plain="deviceHubEnabled" :icon="deviceHubEnabled || mobileConnection.mode === 'remote' ? IconDeviceDesktop : IconQrcode" @click="mobileConnectVisible = true">{{ mobileConnectionLabel }}</el-button>
+        <el-button v-if="canManageHost" round size="large" :type="deviceHubEnabled ? 'success' : undefined" :plain="deviceHubEnabled" :icon="deviceHubEnabled || mobileConnection.mode === 'remote' ? IconDeviceDesktop : IconQrcode" @click="mobileConnectVisible = true">{{ mobileConnectionLabel }}</el-button>
       </div>
       <div class="githubAction">
         <span class="arrowHint starHint">
@@ -94,6 +95,7 @@
 </template>
 
 <script setup lang="ts">
+import { canManageHost, logout } from "@/lib/auth";
 import { locale, translate } from "@toonflow/i18n/vue";
 import axios from "axios";
 import { storeToRefs } from "pinia";

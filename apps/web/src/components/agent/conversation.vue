@@ -160,6 +160,7 @@
 </template>
 
 <script setup lang="ts">
+import { appFetch } from "@/lib/auth";
 import { locale, t, translate } from "@toonflow/i18n/vue";
 import { computed, inject, nextTick, reactive, ref, shallowRef, watch, type ComponentPublicInstance } from "vue";
 import { defaultRangeExtractor, measureElement, observeElementRect, useVirtualizer } from "@tanstack/vue-virtual";
@@ -601,7 +602,7 @@ async function sendCanvasResult(event: Extract<AgentEvent, { type: "canvasCall" 
   }
   const cancelled = signal.aborted;
   if (cancelled) body = JSON.stringify({ directory, callId: event.callId, error: translate("画布操作已取消") });
-  const response = await fetch("/api/agent/canvasResult", {
+  const response = await appFetch("/api/agent/canvasResult", {
     method: "POST",
     headers: { "Accept-Language": locale.value, "Content-Type": "application/json", "x-toonflow-workspace": "1" },
     body,
@@ -659,7 +660,7 @@ async function sendMessage(source?: AgentMessage) {
     if (!source) await instance.reset();
     requestController.signal.throwIfAborted();
     await uploadAttachments(attachments, directory, requestController.signal);
-    const response = await fetch("/api/agent", {
+    const response = await appFetch("/api/agent", {
       method: "POST",
       headers: { "Accept-Language": locale.value, "Content-Type": "application/json", "x-toonflow-workspace": "1" },
       body: JSON.stringify({ prompt, mentions, attachments: attachments.map(({ name, path, mimeType }) => ({ name, path, mimeType })), directory, providerId: model.providerId, modelId: model.modelId, thinkingLevel: reasoningEffort.value || undefined, sessionFile: props.sessionFile, resendFrom, canvas: canvasContext ? { id: canvasContext.id, tools: canvasContext.tools } : undefined }),
@@ -731,7 +732,7 @@ async function sendMessage(source?: AgentMessage) {
     for (const file of activeChildFiles) emit("event", { type: "subAgentEvent", file, event: { type: "error", message: "委派连接已结束，请重新打开子会话查看结果" } });
     // ACT: Bun 的流断开事件可能不触发；主动结束仍在等待的提问，不依赖断开通知。
     for (const callId of pendingQuestions.values()) {
-      void fetch("/api/agent/answer", {
+      void appFetch("/api/agent/answer", {
         method: "POST", headers: { "Accept-Language": locale.value, "Content-Type": "application/json", "x-toonflow-workspace": "1" },
         body: JSON.stringify({ directory, callId, cancelled: true }), keepalive: true,
       }).catch(() => {});

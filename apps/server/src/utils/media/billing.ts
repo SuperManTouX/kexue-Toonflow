@@ -2,12 +2,14 @@ import { createHash, createHmac, randomBytes } from "node:crypto";
 import type { Response } from "express";
 import { z } from "zod";
 import type { ProviderBalance, ProviderPrice, ProviderPriceRequest } from "@toonflow/providers";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
+import { getCurrentUser } from "@/lib/userContext";
 import { getMediaProvider, loadMediaProviderSource } from "@/utils/media/provider";
 
 type RuntimeProvider = Awaited<ReturnType<typeof loadMediaProviderSource>>;
 type BalanceSnapshot = { accountId: string; balance: ProviderBalance | null; revision: number };
 type Account = BalanceSnapshot & {
+  userId: string;
   provider?: RuntimeProvider;
   epoch: number;
   refreshRequested: boolean;
@@ -36,7 +38,7 @@ function accountId(provider: RuntimeProvider) {
   if (provider.id === "tfRouter" && typeof config.apiKey === "string") config.apiKey = config.apiKey.trim().replace(/^Bearer(?:\s+|$)/i, "").trim();
   const data = JSON.stringify({ id: provider.id, config }, (_key, value) => value && typeof value === "object" && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))) : value);
-  return createHmac("sha256", accountSecret).update(data).digest("hex");
+  return createHmac("sha256", accountSecret).update(getCurrentUser().userId).update("\0").update(data).digest("hex");
 }
 
 function queryContext(provider: RuntimeProvider, timeout: number) {
@@ -105,7 +107,7 @@ function getAccount(provider: RuntimeProvider) {
   const id = accountId(provider);
   let account = accounts.get(id);
   if (!account) {
-    account = { accountId: id, balance: null, revision: 0, epoch: 0, refreshRequested: false, connections: new Set() };
+    account = { userId: getCurrentUser().userId, accountId: id, balance: null, revision: 0, epoch: 0, refreshRequested: false, connections: new Set() };
     accounts.set(id, account);
   }
   return account;
@@ -117,7 +119,7 @@ export async function getProviderBalance(providerId: string, apiKey?: string): P
     // ACT: 仅配置文本 TF-Router 的账户也可查余额；缺省查询方法由加载器补齐，不安装媒体文件。
     return 'export default { id: "tfRouter", label: "TF-router", rules: [], models: [] };';
   });
-  const configs = conf.get("settings", {}).mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
+  const configs = getConfig().get("settings", {}).mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
   const provider = await loadMediaProviderSource(source, { ...configs?.[providerId], ...(apiKey === undefined ? {} : { apiKey }) });
   const account = getAccount(provider);
   if (account.provider && account.provider.sourceRevision !== provider.sourceRevision) account.epoch++;
@@ -168,7 +170,7 @@ export function beginGeneration(provider: RuntimeProvider) {
 export function connectBalanceEvents(ids: string | string[], response: Response) {
   const subscribedAccounts = [...new Set(typeof ids === "string" ? [ids] : ids)].map(id => {
     const account = accounts.get(id);
-    if (!account) throw Object.assign(new Error("余额账户已失效，请刷新余额"), { status: 404 });
+    if (!account || account.userId !== getCurrentUser().userId) throw Object.assign(new Error("余额账户已失效，请刷新余额"), { status: 404 });
     return account;
   });
   response.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" });

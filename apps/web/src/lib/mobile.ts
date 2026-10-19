@@ -1,3 +1,4 @@
+import { appFetch } from "@/lib/auth";
 import { computed, ref } from "vue";
 import axios from "axios";
 import { t, translate } from "@toonflow/i18n/vue";
@@ -7,7 +8,7 @@ type MobileConnection = { mode: "local" | "remote"; name?: string; url?: string;
 
 export const mobileConnection = ref<MobileConnection>({ mode: isRemoteConnection ? "remote" : "local" });
 export const deviceHubEnabled = ref(false);
-export const deviceConnectionSupported = ref(true);
+export const deviceConnectionSupported = ref(isMobile || isDesktop);
 export function getDeviceVersionWarning(appVersion?: string, remoteAppVersion?: string) {
   if (!appVersion || !remoteAppVersion) return t`无法确认设备版本（本机：${appVersion || translate("未知")}，对方：${remoteAppVersion || translate("未知")}），建议双方升级到同一版本。`;
   return appVersion === remoteAppVersion ? "" : t`设备版本不一致（本机：${appVersion}，对方：${remoteAppVersion}），可能影响部分功能，建议双方升级到同一版本。`;
@@ -25,6 +26,7 @@ let connectionRequest: Promise<MobileConnection> | undefined;
 let connectionTimer: ReturnType<typeof setTimeout> | undefined;
 
 export async function refreshMobileConnection() {
+  if (!isMobile && !isDesktop) return mobileConnection.value;
   if (connectionRequest) return connectionRequest;
   clearTimeout(connectionTimer);
   connectionRequest = (async () => {
@@ -33,17 +35,14 @@ export async function refreshMobileConnection() {
     try {
       let data: MobileConnection = { mode: "local" };
       if (deviceConnectionSupported.value) {
-        const response = await fetch("/api/connection/connection", { cache: "no-store", signal: request.signal });
-        if (response.status === 404 && !isMobile && !isDesktop) deviceConnectionSupported.value = false;
-        else {
-          if (!response.ok) throw new Error("无法读取设备连接状态，请重试");
-          data = await response.json() as MobileConnection;
-        }
+        const response = await appFetch("/api/connection/connection", { cache: "no-store", signal: request.signal });
+        if (!response.ok) throw new Error("无法读取设备连接状态，请重试");
+        data = await response.json() as MobileConnection;
       }
       if (data.mode !== "local" && data.mode !== "remote") throw new Error("设备连接状态无效，请重试");
       mobileConnection.value = data;
       if (!isMobile && data.mode === "local") {
-        const status = await fetch("/api/mobileLink/status", { headers: { "x-toonflow-mobile-link": "1" }, cache: "no-store", signal: request.signal });
+        const status = await appFetch("/api/mobileLink/status", { headers: { "x-toonflow-mobile-link": "1" }, cache: "no-store", signal: request.signal });
         if (status.ok) {
           const body = await status.json() as { code?: number; data?: { enabled?: boolean; hubEnabled?: boolean } };
           if (body.code !== 200) throw new Error("无法读取共享状态，请重试");
@@ -74,10 +73,12 @@ export async function changeDeviceConnection(action: "connect" | "disconnect", b
   if (data.restart === "mobile") window.location.href = "toonflow://restart";
 }
 
-document.addEventListener("visibilitychange", () => {
-  clearTimeout(connectionTimer);
-  if (!document.hidden) void refreshMobileConnection().catch(() => {});
-});
-window.addEventListener("pagehide", () => clearTimeout(connectionTimer));
-window.addEventListener("pageshow", () => { void refreshMobileConnection().catch(() => {}); });
-void refreshMobileConnection().catch(() => {});
+if (isMobile || isDesktop) {
+  document.addEventListener("visibilitychange", () => {
+    clearTimeout(connectionTimer);
+    if (!document.hidden) void refreshMobileConnection().catch(() => {});
+  });
+  window.addEventListener("pagehide", () => clearTimeout(connectionTimer));
+  window.addEventListener("pageshow", () => { void refreshMobileConnection().catch(() => {}); });
+  void refreshMobileConnection().catch(() => {});
+}

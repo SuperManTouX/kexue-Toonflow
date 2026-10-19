@@ -2,10 +2,11 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { realpath, stat } from "@toonflow/file";
 import { dirname, isAbsolute, resolve } from "node:path";
 import type { Request } from "express";
-import conf from "@/utils/conf";
+import getConfig, { onConfigChange } from "@/utils/conf";
 import { getAppOrigin } from "@/utils/mcp/control";
 import { isWithin } from "@/utils/workspace/files";
 import { getRuntimePlatform } from "@/lib/platform";
+import { getCurrentUser, canManageHost } from "@/lib/userContext";
 
 export type A2aSettings = {
   enabled: boolean;
@@ -16,10 +17,10 @@ export type A2aSettings = {
   thinkingLevel: "off" | "low" | "medium" | "high";
 };
 
-let controller = new AbortController();
+const controllers = new Map<string, AbortController>();
 
 export function getA2aSettings(): A2aSettings {
-  const value = (conf.get("a2a") ?? {}) as Partial<Record<keyof A2aSettings, unknown>>;
+  const value = (getConfig().get("a2a") ?? {}) as Partial<Record<keyof A2aSettings, unknown>>;
   return {
     enabled: value?.enabled === true,
     directory: typeof value?.directory === "string" ? value.directory : "",
@@ -41,8 +42,8 @@ export async function resolveA2aWorkspace(path = getA2aSettings().directory) {
     throw error;
   });
   if (!(await stat(directory)).isDirectory()) throw Object.assign(new Error("A2A 工作目录必须是文件夹"), { status: 400 });
-  if (getRuntimePlatform().local) return directory;
-  const root = await realpath(resolve(dirname(conf.path), "workspaces")).catch((error: NodeJS.ErrnoException) => {
+  if (canManageHost() && getRuntimePlatform().local) return directory;
+  const root = await realpath(resolve(dirname(getConfig().path), "workspaces")).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return;
     throw error;
   });
@@ -53,7 +54,7 @@ export async function resolveA2aWorkspace(path = getA2aSettings().directory) {
 export function authenticateA2a(req: Request) {
   const { enabled, token } = getA2aSettings();
   if (!enabled || token.length < 32) return;
-  if (getRuntimePlatform().requiresLocalHost && !["localhost", "127.0.0.1", "[::1]"].includes(req.hostname)) return;
+  if (canManageHost() && getRuntimePlatform().requiresLocalHost && !["localhost", "127.0.0.1", "[::1]"].includes(req.hostname)) return;
   if (req.get("origin")) {
     try { getAppOrigin(req); } catch { return; }
   }
@@ -64,12 +65,15 @@ export function authenticateA2a(req: Request) {
 }
 
 export function getA2aSignal() {
+  const id = getCurrentUser().userId;
+  let controller = controllers.get(id);
+  if (!controller) controllers.set(id, controller = new AbortController());
   return controller.signal;
 }
 
-conf.onDidChange("a2a", (next, previous) => {
+onConfigChange("a2a", (next, previous) => {
   if (JSON.stringify(next) === JSON.stringify(previous)) return;
-  const previousController = controller;
-  controller = new AbortController();
-  previousController.abort(new Error("A2A 设置已修改，当前任务已取消"));
+  const id = getCurrentUser().userId;
+  controllers.get(id)?.abort(new Error("A2A 设置已修改，当前任务已取消"));
+  controllers.delete(id);
 });

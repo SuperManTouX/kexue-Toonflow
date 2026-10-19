@@ -73,7 +73,7 @@ export default Router().post("/", validateFields(inputSchema.shape), async (req,
       ? await u.workspace.resolveWorkspace(req, input.directory ?? "") : undefined;
     const references = await u.ai.readAiReferences(directory, input.references ?? [], controller.signal, configured.provider);
     const stream = u.ai.streamAi(configured, input.context, controller.signal, references);
-    res.set({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" });
+    res.set({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": u.auth.canManageHost() ? "no-cache, no-transform" : "private, no-store, no-transform", "X-Accel-Buffering": "no" });
     res.flushHeaders();
     heartbeat = setInterval(() => {
       if (!res.destroyed && !res.writableEnded && !res.writableNeedDrain) res.write(": keepalive\n\n");

@@ -1,7 +1,8 @@
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "@toonflow/file";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
+import { getSharedDataDirectory } from "@/lib/userContext";
 import { decodeText, requireNewerVersion, skillZip } from "@/utils/plugins/install";
 import { isWithin } from "@/utils/workspace/files";
 import { agentsDirectory, checkName, fingerprint, installRecord, maxBytes, readFiles, validateFiles, withTeamFiles } from "./files";
@@ -23,14 +24,14 @@ export async function installTeam(fileName: string, bytes: Uint8Array, force = f
   const files = new Map([...archive].map(([path, content]) => [path.slice(prefix.length), content]));
   const manifest = validateFiles(name, files);
   return withTeamFiles(async () => {
-    const root = dirname(conf.path);
+    const root = getSharedDataDirectory();
     let temporary: string | undefined;
     let preserveBackup = false;
     try {
       await mkdir(agentsDirectory, { recursive: true });
       if (!(await lstat(agentsDirectory)).isDirectory()) throw Object.assign(new Error("团队目录必须是普通目录"), { status: 403 });
       const existing = (await readdir(agentsDirectory)).find(item => item.toLowerCase() === name.toLowerCase());
-      if (Object.keys(conf.get("remoteConnections", {})).some(item => item.toLowerCase() === name.toLowerCase())) {
+      if (Object.keys(getConfig().get("remoteConnections", {})).some(item => item.toLowerCase() === name.toLowerCase())) {
         throw Object.assign(new Error("已存在同名远端团队连接"), { status: 409 });
       }
       if (existing && existing !== name) throw Object.assign(new Error("团队目录名称大小写冲突"), { status: 409 });

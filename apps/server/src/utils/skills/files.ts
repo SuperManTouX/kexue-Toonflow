@@ -1,7 +1,7 @@
 import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
 import { lstat, readdir, readFile, realpath, rm } from "@toonflow/file";
 import { basename, dirname, relative, resolve, sep } from "node:path";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
 import { isWithin, writeWorkspaceFile } from "@/utils/workspace/files";
 
 export const maxBytes = 20 * 1024 * 1024;
@@ -9,19 +9,19 @@ export const maxBytes = 20 * 1024 * 1024;
 const orderFileName = ".toonflowOrder.json";
 
 export function directory() {
-  return resolve(dirname(conf.path), "skills");
+  return resolve(dirname(getConfig().path), "skills");
 }
 
 export function isEnabled(name: string) {
-  return !conf.get("disabledSkills", []).includes(name);
+  return !getConfig().get("disabledSkills", []).includes(name);
 }
 
 export async function setEnabled(name: string, enabled: boolean) {
   await resolveSkill(name);
-  const disabledSkills = new Set(conf.get("disabledSkills", []));
+  const disabledSkills = new Set(getConfig().get("disabledSkills", []));
   if (enabled) disabledSkills.delete(name);
   else disabledSkills.add(name);
-  conf.set("disabledSkills", [...disabledSkills]);
+  getConfig().set("disabledSkills", [...disabledSkills]);
 }
 
 async function verifyRoot() {
@@ -87,7 +87,7 @@ export async function uninstall(name: string) {
   }
   // ACT: 非标准目录布局仅删除主文件，保留可能与其他技能共享的目录。
   await rm(isDirectorySkill ? baseDir : mainTarget, { recursive: isDirectorySkill });
-  conf.set("disabledSkills", conf.get("disabledSkills", []).filter(item => item !== name));
+  getConfig().set("disabledSkills", getConfig().get("disabledSkills", []).filter(item => item !== name));
 }
 
 export async function locate(name: string, path?: string) {

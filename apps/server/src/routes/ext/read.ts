@@ -11,8 +11,7 @@ export default Router().get("/", validateFields({ name: u.extPlugins.extNameSche
   const path = resolve(u.extPlugins.extDirectory, `${name}.umd.js`);
   const file = await lstat(path).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
   if (!file?.isFile()) return res.status(404).json(error("文件扩展不存在", null, 404));
-  const disabled = await lstat(resolve(u.extPlugins.extDirectory, `${name}.disabled`)).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
-  if (disabled) return res.status(404).json(error("文件扩展已禁用", null, 404));
-  res.set("Cache-Control", "no-cache");
+  if (!u.isResourceEnabled("ext", name)) return res.status(404).json(error("文件扩展已禁用", null, 404));
+  res.set("Cache-Control", u.auth.canManageHost() ? "no-cache" : "private, no-store");
   await sendFile(res, path);
 });

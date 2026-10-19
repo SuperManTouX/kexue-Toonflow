@@ -31,12 +31,12 @@
 
     <section class="settingSection" aria-labelledby="mcpEndpointTitle">
       <h3 id="mcpEndpointTitle">服务地址</h3>
-      <div class="portSetting">
+      <div v-if="canManageHost" class="portSetting">
         <label for="mcpPort">首选本地端口</label>
         <el-input-number id="mcpPort" v-model="portDraft" :min="1" :max="65535" :precision="0" controlsPosition="right" size="small" :disabled="saving" />
         <el-button size="small" :loading="saving" :disabled="portDraft === undefined || portDraft === (status?.preferredPort ?? mcpSettings.port)" @click="savePort">保存</el-button>
       </div>
-      <p class="description">默认 10588，占用时自动顺延。保存后自动切换 MCP 端口，地址变化后请重新复制客户端配置。</p>
+      <p v-if="canManageHost" class="description">默认 10588，占用时自动顺延。保存后自动切换 MCP 端口，地址变化后请重新复制客户端配置。</p>
       <el-input :modelValue="status?.endpoint ?? ''" dir="ltr" readonly aria-label="MCP 服务地址" />
       <p v-if="status?.port" class="description">当前本地监听端口：{{ status.port }}</p>
       <p v-if="status?.port && status.port !== status.preferredPort && !status.error" class="description">首选端口 {{ status.preferredPort }} 已被占用，已顺延至 {{ status.port }}。</p>
@@ -69,6 +69,7 @@
 </template>
 
 <script setup lang="ts">
+import { canManageHost } from "@/lib/auth";
 import { computed, onMounted, ref, watch } from "vue";
 import axios from "axios";
 import { ElMessage, type InputInstance } from "element-plus";

@@ -115,6 +115,7 @@
 </template>
 
 <script setup lang="ts">
+import { appFetch } from "@/lib/auth";
 import { locale, translate } from "@toonflow/i18n/vue";
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import axios from "axios";
@@ -343,7 +344,7 @@ async function run() {
     if (formApi.value && !(await formApi.value.validate().catch(() => false))) throw new Error("请检查供应商配置");
     const request = await buildRequest();
     signal.throwIfAborted();
-    const response = await fetch("/api/providers/debug/run", { method: "POST", headers: { "Accept-Language": locale.value, "Content-Type": "application/json" }, body: JSON.stringify({ source: source.value, config: formApi.value?.formData() ?? config.value, request }), signal });
+    const response = await appFetch("/api/providers/debug/run", { method: "POST", headers: { "Accept-Language": locale.value, "Content-Type": "application/json" }, body: JSON.stringify({ source: source.value, config: formApi.value?.formData() ?? config.value, request }), signal });
     if (!response.ok) throw new Error((await response.json()).message || "调试请求失败");
     if (!response.body) throw new Error("未收到运行结果");
     const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();

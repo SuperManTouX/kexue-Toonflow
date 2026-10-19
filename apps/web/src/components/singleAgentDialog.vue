@@ -54,6 +54,7 @@
 </template>
 
 <script lang="ts">
+import { appFetch } from "@/lib/auth";
 import type { SingleAgentToolDescriptor, SingleAgentToolReference, SingleAgentToolResult, SingleAgentResult } from "@toonflow/server/singleAgent/types";
 import type { AgentMessage } from "./agent/types";
 
@@ -132,7 +133,7 @@ function reportError(error: unknown) {
 
 async function closeSession(id: string) {
   if (!id) return;
-  const response = await fetch("/api/singleAgent/control", {
+  const response = await appFetch("/api/singleAgent/control", {
     method: "POST", headers: { ...requestHeaders, "Content-Type": "application/json" },
     body: JSON.stringify({ sessionId: id, action: "close" }), keepalive: true,
   });
@@ -218,7 +219,7 @@ async function send(content = draft.value) {
     msgList.value = [...msgList.value, { id: crypto.randomUUID(), role: "user", content: prompt }, reply];
     draft.value = "";
     accepted = true;
-    const response = await fetch("/api/singleAgent/run", {
+    const response = await appFetch("/api/singleAgent/run", {
       method: "POST", headers: { ...requestHeaders, "Content-Type": "application/json" }, signal,
       body: JSON.stringify({ sessionId: id, runId: reply.id, prompt, providerId: model.providerId, modelId: model.modelId, thinkingLevel: thinkingLevel.value }),
     });

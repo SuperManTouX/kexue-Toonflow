@@ -4,7 +4,7 @@ import u from "@/utils";
 export default Router().get("/", (req, res) => {
   // ACT: 原生 EventSource 无自定义请求头；仅此只读通知流使用同源校验。
   u.mcpControl.getAppOrigin(req);
-  res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" });
+  res.set({ "Content-Type": "text/event-stream", "Cache-Control": u.auth.canManageHost() ? "no-cache, no-transform" : "private, no-store, no-transform", "X-Accel-Buffering": "no" });
   res.flushHeaders();
   res.write(": connected\n\n");
   const unsubscribe = u.ffmpeg.onRequired(() => {

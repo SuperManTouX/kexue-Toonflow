@@ -7,6 +7,7 @@ import { z } from "zod";
 import u from "@/utils";
 import { validateFields } from "@/lib/middleware";
 import { error } from "@/lib/responseFormat";
+import { getSharedDataDirectory } from "@/lib/userContext";
 
 const router = Router();
 const maxBytes = 20 * 1024 * 1024;
@@ -25,7 +26,7 @@ export default router.get("/", validateFields({
     if (bytes.byteLength > maxBytes) return res.status(413).json(error("团队 ZIP 文件不能超过 20 MB", null, 413));
     return res.set("Cache-Control", "no-store").attachment(`${name}.agent.zip`).send(Buffer.from(bytes));
   }
-  const root = await realpath(dirname(u.conf.path));
+  const root = await realpath(type === "skill" ? dirname(u.conf.path) : getSharedDataDirectory());
   const directory = resolve(root, type === "ext" ? "ext" : `${type}s`);
   if (!(await lstat(directory)).isDirectory() || !u.workspaceFile.isWithin(root, await realpath(directory))) {
     return res.status(400).json(error("插件目录无效", null, 400));

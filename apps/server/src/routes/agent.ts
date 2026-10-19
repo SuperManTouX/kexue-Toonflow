@@ -29,7 +29,7 @@ const inputSchema = z.object({
 export default Router().post("/", validateFields(inputSchema.shape), async (req, res) => {
   const { directory, canvas, ...options } = req.body as z.infer<typeof inputSchema>;
   const cwd = await u.workspace.resolveWorkspace(req, directory);
-  res.set({ "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" });
+  res.set({ "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": u.auth.canManageHost() ? "no-cache, no-transform" : "private, no-store, no-transform", "X-Accel-Buffering": "no" });
   res.flushHeaders();
   const send = (event: AgentEvent) => {
     if (event.type === "error") event = { ...event, message: translateMessage(event.message) };

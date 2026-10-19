@@ -1,3 +1,4 @@
+import { getSharedDataDirectory } from "@/lib/userContext";
 import u from "@/utils";
 import { lstat, unlink } from "@toonflow/file";
 import { dirname, resolve } from "node:path";
@@ -9,7 +10,7 @@ import { error, success } from "@/lib/responseFormat";
 const router = Router();
 
 export default router.delete("/", validateFields({ name: z.string().regex(/^[a-z][a-zA-Z0-9]*$/) }), async (req, res) => {
-  const nodesDirectory = resolve(dirname(u.conf.path), "nodes");
+  const nodesDirectory = resolve(getSharedDataDirectory(), "nodes");
   const filePath = resolve(nodesDirectory, `${req.body.name}.umd.js`);
   const markerPath = resolve(nodesDirectory, `${req.body.name}.disabled`);
   const file = await lstat(filePath).catch((err: NodeJS.ErrnoException) => {

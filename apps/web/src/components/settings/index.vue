@@ -36,6 +36,7 @@
 </template>
 
 <script setup lang="ts">
+import { canManageHost } from "@/lib/auth";
 import { defineAsyncComponent, shallowRef } from "vue";
 import { hasDesktopUpdate } from "@/stores/desktopUpdate";
 import { isMobile } from "@/lib/platform";
@@ -72,7 +73,7 @@ const settingsPanels = [
     component: defineAsyncComponent(() => import("./panels/pluginMarket/index.vue")),
   },
   { id: "mcp", label: "MCP", icon: IconPlugConnected, groupLabel: "通讯", component: defineAsyncComponent(() => import("./panels/mcp/index.vue")) },
-  ...(!isMobile
+  ...(!isMobile && canManageHost.value
     ? [{ id: "deviceLink", label: "设备互联", icon: IconDevices, component: defineAsyncComponent(() => import("./panels/deviceLink.vue")) }]
     : []),
   {

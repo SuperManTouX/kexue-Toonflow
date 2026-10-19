@@ -1,3 +1,4 @@
+import { appFetch } from "@/lib/auth";
 import axios from "axios";
 import * as vue from "vue";
 import * as elementPlus from "element-plus";
@@ -81,7 +82,7 @@ function loadExtension(extension: InstalledExtension) {
         throw new Error("扩展脚本地址无效");
       }
       url.searchParams.set("revision", `${extension.revision ?? extension.version}-${requestedRevision}`);
-      const response = await fetch(url.href);
+      const response = await appFetch(url.href);
       if (!response.ok) throw new Error(`扩展加载失败：${extension.displayName}（HTTP ${response.status}）`);
       const code = await response.text();
       if (code.includes("toonflowTiptapHost")) await import("@/lib/tiptapHost");

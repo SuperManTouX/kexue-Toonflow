@@ -1,3 +1,4 @@
+import { getSharedDataDirectory, canManageHost } from "@/lib/userContext";
 import { t, translateMessage, validationOptions } from "@/lib/i18n";
 
 import { createHash } from "node:crypto";
@@ -8,7 +9,7 @@ import type { AudioConvertOptions, Provider, ProviderTools } from "@toonflow/pro
 import tfRouter from "@toonflow/providers/media/tfRouter";
 import { parse, parseExpression } from "@babel/parser";
 import { z } from "zod";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
 import { convertAudio } from "@/utils/media/audioProcessor";
 import { createWorkspaceFfmpeg } from "@/utils/ffmpeg";
 import { lockWorkspaceFiles, writeWorkspaceFile } from "@/utils/workspace/files";
@@ -227,9 +228,9 @@ export function validateMediaProviderSource(source: string) {
 }
 
 async function directory(create = false) {
-  const path = join(dirname(conf.path), "providers");
+  const path = join(getSharedDataDirectory(), "providers");
   if (create) {
-    await mkdir(dirname(conf.path), { recursive: true });
+    await mkdir(dirname(getConfig().path), { recursive: true });
     await mkdir(path).catch((err: NodeJS.ErrnoException) => { if (err.code !== "EEXIST") throw err; });
   }
   const info = await lstat(path).catch((err: NodeJS.ErrnoException) => { if (err.code === "ENOENT") return null; throw err; });
@@ -243,7 +244,15 @@ async function readProvider(path: string, fileName: string) {
   const info = await lstat(file);
   if (info.isSymbolicLink() || !info.isFile()) invalid("供应商文件不能是符号链接或目录", 403);
   if (info.size > 2 * 1024 * 1024) invalid("供应商文件不能超过 2 MB");
-  const source = await readFile(file, "utf8");
+  let source = await readFile(file, "utf8");
+  const models = getConfig().get("mediaProviderModels", {})[fileName];
+  if (!canManageHost() && models !== undefined) {
+    const { object, modelProperty } = parseProvider(source);
+    const value = JSON.stringify(mediaModelsSchema.parse(models));
+    source = modelProperty?.type === "ObjectProperty"
+      ? source.slice(0, modelProperty.value.start!) + value + source.slice(modelProperty.value.end!)
+      : source.slice(0, object.start! + 1) + `models: ${value},` + source.slice(object.start! + 1);
+  }
   return { fileName, id: fileName.slice(0, -3), source, revision: createHash("sha256").update(source).digest("hex") };
 }
 
@@ -296,7 +305,8 @@ export async function saveMediaProvider(fileName: string, models: z.infer<typeof
   if (!checked.success) invalid(checked.error.issues.map(issue => translateMessage(issue.message)).join("; "));
   const path = await directory();
   if (!path) invalid("供应商文件不存在", 404);
-  const release = lockWorkspaceFiles([join(path, fileName)]);
+  const lockPath = canManageHost() ? join(path, fileName) : join(dirname(getConfig().path), "mediaProviderModels", fileName);
+  const release = lockWorkspaceFiles([lockPath]);
   try {
     const current = await readProvider(path, fileName);
     if (current.revision !== revision) invalid("供应商文件已被修改，请刷新页面后再编辑", 409);
@@ -310,13 +320,16 @@ export async function saveMediaProvider(fileName: string, models: z.infer<typeof
     const source = current.source.slice(0, start) + replacement + current.source.slice(end);
     const result = metadata(fileName, source);
     if (expectedApiKey !== undefined && getMediaProviderApiKey(result.id) !== expectedApiKey) invalid("供应商配置已变更，请重试", 409);
-    await writeWorkspaceFile(join(path, fileName), source);
-    return result;
+    if (canManageHost()) await writeWorkspaceFile(join(path, fileName), source);
+    else getConfig().set("mediaProviderModels", { ...getConfig().get("mediaProviderModels", {}), [fileName]: checked.data });
+    if (canManageHost()) return result;
+    const saved = await readProvider(path, fileName);
+    return metadata(fileName, saved.source);
   } finally { release(); }
 }
 
 export function getMediaProviderApiKey(id: string) {
-  const value: unknown = conf.get(`settings.mediaProviderConfigs.${id}.apiKey`);
+  const value: unknown = getConfig().get(`settings.mediaProviderConfigs.${id}.apiKey`);
   return typeof value === "string" ? value.trim().replace(/^Bearer(?:\s+|$)/i, "").trim() : "";
 }
 
@@ -376,7 +389,7 @@ export async function deleteMediaProvider(fileName: string, revision: string) {
     const current = await readProvider(path, fileName);
     if (current.revision !== revision) invalid("供应商文件已被修改，请刷新页面后再删除", 409);
     await unlink(file);
-    conf.delete(`settings.mediaProviderConfigs.${current.id}`);
+    getConfig().delete(`settings.mediaProviderConfigs.${current.id}`);
   } finally { release(); }
 }
 

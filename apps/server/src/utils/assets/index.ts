@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, opendir, readFile, realpath, rmdir, unlink } from "@toonflow/file";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
 import { isWithin, lockWorkspaceFiles, protectWorkspaceRoot, renameWorkspaceFile, resolveWorkspacePath, writeWorkspaceFile } from "@/utils/workspace/files";
 import { mentionAssetType, type MentionAsset, type MentionQuery } from "@/agent/mentionSources";
 
@@ -11,7 +11,7 @@ type AssetSearch = { key: string; directory: string; offset: number; touched: nu
 const assetSearches = new Map<string, AssetSearch>();
 
 export async function getAssetsDirectory() {
-  const directory = join(dirname(conf.path), "assets");
+  const directory = join(dirname(getConfig().path), "assets");
   try { return await realpath(directory); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;

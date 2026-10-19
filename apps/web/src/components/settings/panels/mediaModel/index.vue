@@ -24,14 +24,14 @@
           <el-space class="itemActions" wrap>
             <el-button v-if="item.modelsUrl" text :icon="IconDownload" :loading="fetchingFile === item.fileName" :disabled="!!fetchingFile || !!deletingFile || !!item.loadError || !item.revision" @click="fetchModels(item)">获取模型</el-button>
             <el-button text :icon="IconEdit" :disabled="!!fetchingFile || !!deletingFile || !!item.loadError" @click="editProvider(item)">编辑模型</el-button>
-            <el-popconfirm title="确定删除此供应商及其模型？" confirmButtonText="删除" cancelButtonText="取消" @confirm="deleteProvider(item)">
+            <el-popconfirm v-if="canManageHost" title="确定删除此供应商及其模型？" confirmButtonText="删除" cancelButtonText="取消" @confirm="deleteProvider(item)">
               <template #reference><el-button text type="danger" :icon="IconTrash" :loading="deletingFile === item.fileName" :disabled="!!fetchingFile || !!deletingFile || !item.revision">删除</el-button></template>
             </el-popconfirm>
           </el-space>
         </div>
       </el-card>
     </div>
-    <div class="providerActions">
+    <div v-if="canManageHost" class="providerActions">
       <el-button class="addButton" :icon="IconPlus" @click="openAdd('builtin')">添加供应商</el-button>
       <el-button class="addButton" :icon="IconSettings" @click="openAdd('custom')">添加自定义供应商</el-button>
     </div>
@@ -41,6 +41,7 @@
 </template>
 
 <script setup lang="ts">
+import { canManageHost } from "@/lib/auth";
 import axios from "axios";
 import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, ref, shallowRef, type Component } from "vue";
 import { ElMessage } from "element-plus";

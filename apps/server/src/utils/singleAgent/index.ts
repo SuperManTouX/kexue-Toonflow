@@ -11,7 +11,8 @@ import { getToolResultText } from "@/agent/runtime/sessions";
 import { createQuestionContext, answerQuestion } from "@/agent/bridge/question";
 import { listTools, loadTool, validateToolConfig } from "@/utils/plugins/tools";
 import { browserRuntime } from "@/utils/browser";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
+import { getCurrentUser } from "@/lib/userContext";
 import type { SingleAgentEvent, SingleAgentResult, SingleAgentStatus, SingleAgentToolDescriptor, SingleAgentToolReference, SingleAgentToolResult } from "./types";
 
 type ClientCall = {
@@ -33,6 +34,7 @@ type RunState = {
   clientCalls: Map<string, ClientCall>;
 };
 type SingleSession = {
+  userId: string;
   id: string;
   cwd: string;
   workspaceAvailable: boolean;
@@ -49,7 +51,7 @@ const sessions = new Map<string, SingleSession>();
 
 function getSession(sessionId: string) {
   const session = sessions.get(sessionId);
-  if (!session || session.closed) throw Object.assign(new Error("临时对话不存在或已关闭"), { status: 404 });
+  if (!session || session.closed || session.userId !== getCurrentUser().userId) throw Object.assign(new Error("临时对话不存在或已关闭"), { status: 404 });
   return session;
 }
 
@@ -110,9 +112,10 @@ export async function create(options: {
 }, signal?: AbortSignal) {
   signal?.throwIfAborted();
   const id = crypto.randomUUID();
-  const cwd = options.directory ?? join(dirname(conf.path), "singleAgent", id);
+  const cwd = options.directory ?? join(dirname(getConfig().path), "singleAgent", id);
   if (!options.directory) await mkdir(cwd, { recursive: true });
   const session: SingleSession = {
+    userId: getCurrentUser().userId,
     id, cwd, workspaceAvailable: !!options.directory, history: SessionManager.inMemory(cwd),
     systemPrompt: options.systemPrompt ?? "", tools: [], closed: false,
   };
@@ -355,6 +358,7 @@ export function assertWorkspaceBrowserAccess(browserSessionId: string) {
 export async function close(sessionId: string) {
   const session = sessions.get(sessionId);
   if (!session) return;
+  if (session.userId !== getCurrentUser().userId) throw Object.assign(new Error("临时对话不存在或已关闭"), { status: 404 });
   if (session.closing) return session.closing;
   session.closed = true;
   const active = session.active;
@@ -368,7 +372,7 @@ export async function close(sessionId: string) {
     } finally {
       sessions.delete(sessionId);
       // 仅清理 create 分配的私有目录，用户提供的工作区由用户管理。
-      if (!session.workspaceAvailable) await rm(join(dirname(conf.path), "singleAgent", session.id), { recursive: true, force: true });
+      if (!session.workspaceAvailable) await rm(join(dirname(getConfig().path), "singleAgent", session.id), { recursive: true, force: true });
     }
   })();
   return session.closing;

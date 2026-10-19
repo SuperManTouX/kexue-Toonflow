@@ -4,7 +4,7 @@
       <nav class="marketNav" aria-label="插件列表">
         <button class="navButton" type="button" :aria-pressed="isMarketTab" @click="activeTab = 'discover'">发现插件</button>
         <button class="navButton" type="button" :aria-pressed="activeTab === 'installed'" @click="activeTab = 'installed'">已安装</button>
-        <button class="navButton" type="button" :aria-pressed="activeTab === 'ffmpeg'" @click="activeTab = 'ffmpeg'">FFmpeg</button>
+        <button v-if="canManageHost" class="navButton" type="button" :aria-pressed="activeTab === 'ffmpeg'" @click="activeTab = 'ffmpeg'">FFmpeg</button>
       </nav>
       <div class="marketActions">
         <el-button tag="a" href="https://api.toonflow.net/console/plugIn" target="_blank" rel="noopener noreferrer" size="small" text :icon="IconExternalLink">
@@ -15,13 +15,13 @@
         </el-button>
         <template v-if="activeTab === 'installed'">
           <el-button v-if="selectedType === 'ext' || selectedType === 'all'" size="small" :icon="IconSettings" @click="associationsVisible = true">默认打开方式</el-button>
-          <el-button size="small" type="primary" :icon="IconUpload" :loading="installing" aria-label="安装本地插件" @click="pluginFileInput?.click()">
+          <el-button v-if="canManageHost" size="small" type="primary" :icon="IconUpload" :loading="installing" aria-label="安装本地插件" @click="pluginFileInput?.click()">
             安装插件
           </el-button>
           <input ref="pluginFileInput" type="file" :accept="agentMarketEnabled ? '.umd.js,.tool.js,.agent.zip,.zip,.md,.tar,.tar.gz,.tgz' : '.umd.js,.tool.js,.zip,.md,.tar,.tar.gz,.tgz'" hidden @change="installFile" />
           <template v-if="agentMarketEnabled && selectedType === 'agent'">
             <el-button size="small" :icon="IconLink" :disabled="loading || !canManageAgents" @click="agentConnectVisible = true">连接远程 Agent</el-button>
-            <el-button size="small" :icon="IconSettings" :disabled="loading || !canManageAgents" @click="a2aSettingsVisible = true">A2A 服务</el-button>
+            <el-button size="small" :icon="IconSettings" :disabled="loading" @click="a2aSettingsVisible = true">A2A 服务</el-button>
           </template>
         </template>
       </div>
@@ -126,7 +126,7 @@
           <div v-if="isMarketTab" class="pluginFooter" @click.stop>
             <el-text v-if="installLabel(plugin) === '已安装'" type="info" size="small">已安装</el-text>
             <el-popconfirm
-              v-else-if="pluginTypes[plugin.type].path"
+              v-else-if="canManageHost && pluginTypes[plugin.type].path"
               :title="`${translate(installLabel(plugin))}${pluginTypes[plugin.type].label}“${plugin.displayName}”（${plugin.fileName}）？`"
               width="280"
               :confirmButtonText="translate(installLabel(plugin))"
@@ -173,7 +173,7 @@
             </label>
             <div class="pluginActions">
               <el-button
-                v-if="plugin.type === 'node' || plugin.type === 'skill' || plugin.type === 'tool' || plugin.type === 'ext' || (plugin.type === 'agent' && plugin.kind === 'local')"
+                v-if="canManageHost && (plugin.type === 'node' || plugin.type === 'skill' || plugin.type === 'tool' || plugin.type === 'ext' || (plugin.type === 'agent' && plugin.kind === 'local'))"
                 size="small"
                 :icon="IconShare"
                 :loading="exportingPlugins.has(plugin.key)"
@@ -181,7 +181,7 @@
                 :aria-label="`导出分享 ${plugin.displayName}`"
                 title="导出分享"
                 @click="exportPlugin(plugin)" />
-              <el-button v-if="plugin.type === 'agent' && plugin.kind === 'local'" size="small" :disabled="!canManageAgents || loading || pendingPlugins.has(plugin.key)" @click="selectedAgent = plugin">编辑</el-button>
+              <el-button v-if="canManageHost && plugin.type === 'agent' && plugin.kind === 'local'" size="small" :disabled="!canManageAgents || loading || pendingPlugins.has(plugin.key)" @click="selectedAgent = plugin">编辑</el-button>
               <el-button v-if="plugin.type === 'agent' && plugin.cardUrl" size="small" :icon="IconCopy" @click="copyCard(plugin.cardUrl)">Card</el-button>
               <el-badge v-if="(plugin.type === 'tool' || plugin.type === 'node' || plugin.type === 'ext') && plugin.configRules?.length" isDot :hidden="!hasMissingConfig(plugin)">
                 <el-button
@@ -196,7 +196,7 @@
                 </el-button>
               </el-badge>
               <el-popconfirm
-                v-if="plugin.author !== 'Toonflow' || plugin.type === 'skill' || plugin.type === 'agent' || plugin.type === 'ext'"
+                v-if="canManageHost && (plugin.author !== 'Toonflow' || plugin.type === 'skill' || plugin.type === 'agent' || plugin.type === 'ext')"
                 :title="`确定卸载“${plugin.displayName}”${plugin.type === 'skill' ? '及其附属文件' : ''}吗？`"
                 width="280"
                 confirmButtonText="卸载"
@@ -260,6 +260,7 @@
 </template>
 
 <script setup lang="ts">
+import { canManageHost } from "@/lib/auth";
 import { translate } from "@toonflow/i18n/vue";
 import axios from "axios";
 import parse from "semver/functions/parse";
@@ -405,7 +406,7 @@ function openPlugin(plugin: Plugin) {
 }
 
 function canConfigurePlugin(plugin: Plugin) {
-  return plugin.type === "node" || plugin.type === "ext" ? plugin.canConfigure === true : plugin.type === "tool" && canManageTools.value;
+  return plugin.type === "node" || plugin.type === "ext" ? plugin.canConfigure === true : plugin.type === "tool" && (canManageTools.value || !canManageHost.value);
 }
 
 function hasMissingConfig(plugin: Plugin) {
@@ -619,6 +620,7 @@ async function copyCard(url: string) {
 }
 
 function canEditPlugin(plugin: Plugin) {
+  if (!canManageHost.value) return activeTab.value === "installed";
   return (
     activeTab.value === "installed" &&
     (plugin.type === "node" || plugin.type === "skill" || (plugin.type === "ext" && plugin.canManage === true) || (plugin.type === "tool" && canManageTools.value) || (plugin.type === "agent" && canManageAgents.value))

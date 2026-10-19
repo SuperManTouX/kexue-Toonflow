@@ -1,3 +1,4 @@
+import { getSharedDataDirectory } from "@/lib/userContext";
 import { t, translateMessage, validationOptions } from "@/lib/i18n";
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir } from "@toonflow/file";
@@ -5,7 +6,7 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as zod from "zod";
 import { toolMetadataSchema, toolNameSchema, type ToolMetadata, type ToolPlugin } from "@toonflow/tools-scaffold/runtime";
-import conf from "@/utils/conf";
+import getConfig, { isResourceEnabled } from "@/utils/conf";
 
 export { toolNameSchema } from "@toonflow/tools-scaffold/runtime";
 
@@ -19,7 +20,7 @@ Bun.plugin({
   },
 });
 
-export const toolsDirectory = resolve(dirname(conf.path), "tools");
+export const toolsDirectory = resolve(getSharedDataDirectory(), "tools");
 
 export function parseTool(source: string, name: string) {
   let metadata: zod.infer<typeof toolMetadataSchema>;
@@ -62,7 +63,7 @@ export function getToolConfig(metadata: ToolMetadata): Record<string, unknown> {
   const defaults = Object.fromEntries(metadata.configRules
     .filter(rule => typeof rule.field === "string" && rule.value !== undefined)
     .map(rule => [rule.field, rule.value]));
-  const saved = conf.get("toolConfigs", {});
+  const saved = getConfig().get("toolConfigs", {});
   return { ...defaults, ...(Object.hasOwn(saved, metadata.name) ? saved[metadata.name] : {}) };
 }
 
@@ -75,7 +76,7 @@ export async function listTools() {
     .sort((left, right) => left.name.localeCompare(right.name))
     .map(async file => {
       const name = file.name.slice(0, -8);
-      const enabled = !files.some(entry => entry.name === `${name}.disabled`);
+      const enabled = isResourceEnabled("tool", name);
       try {
         const { metadata, revision } = await readTool(name);
         return { ...metadata, enabled, config: getToolConfig(metadata), revision, loadError: "" };

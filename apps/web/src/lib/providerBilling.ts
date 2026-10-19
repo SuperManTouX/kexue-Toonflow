@@ -123,7 +123,7 @@ export function useProviderBalances() {
     for (const [group, connection] of connections) if (!groups.includes(group)) { connection.close(); connections.delete(group); }
     for (const group of groups) {
       if (connections.has(group)) continue;
-      const connection = new EventSource(`/api/ai/media/balanceEvents?accountIds=${encodeURIComponent(group)}`);
+      const connection = new EventSource(apiUrl(`/api/ai/media/balanceEvents?accountIds=${encodeURIComponent(group)}`));
       connections.set(group, connection);
       connection.onopen = () => { if (connections.get(group) === connection) reconnectDelay = 1000; };
       connection.onmessage = event => {
@@ -233,3 +233,4 @@ export function useProviderBalances() {
   });
 }
 
+import { apiUrl } from "@/lib/auth";

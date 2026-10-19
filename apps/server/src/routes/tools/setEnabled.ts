@@ -9,8 +9,13 @@ import { error, success } from "@/lib/responseFormat";
 const router = Router();
 
 export default router.put("/", validateFields({ name: u.plugins.toolNameSchema, enabled: z.boolean() }), async (req, res) => {
-  if (!u.workspace.isLocalWorkspaceRequest(req)) return res.status(403).json(error("请在桌面端或服务器本机管理工具", null, 403));
+  if (!u.workspace.canConfigureUser(req)) return res.status(403).json(error("请在桌面端或服务器本机管理工具", null, 403));
   const { name, enabled } = req.body as { name: string; enabled: boolean };
+  if (!u.auth.canManageHost()) {
+    const { plugin, metadata } = await u.plugins.loadTool(name); if (enabled) u.plugins.validateToolConfig(plugin, u.plugins.getToolConfig(metadata));
+    u.setResourceEnabled("tool", name, enabled);
+    return res.json(success({ name, enabled }));
+  }
   const release = u.workspaceFile.lockWorkspaceFiles([resolve(u.plugins.toolsDirectory, `${name}.tool.js`)]);
   try {
     if (!(await lstat(resolve(u.plugins.toolsDirectory, `${name}.tool.js`))).isFile()) return res.status(400).json(error("工具文件无效", null, 400));

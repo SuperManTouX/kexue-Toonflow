@@ -6,6 +6,7 @@
   "exports": {
     ".": "./index.ts",
     "./runtime": "./src/runtime.ts",
+    "./hostRequest": "./src/hostRequest.ts",
     "./nodeSkeleton": "./src/nodeSkeleton.vue",
     "./connection": "./src/connection.ts",
     "./values": "./src/values.ts",

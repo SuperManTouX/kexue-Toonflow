@@ -1,9 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Request, Response } from "express";
 import { z } from "zod";
-import conf from "@/utils/conf";
+import getConfig, { onConfigChange } from "@/utils/conf";
 import { isMobileLinkRequest } from "@/utils/mobileLink";
 import { getRuntimePlatform } from "@/lib/platform";
+import { getCurrentUser, canManageHost } from "@/lib/userContext";
 
 export const controlStateSchema = z.object({
   directory: z.string().max(4096).nullable(),
@@ -18,12 +19,12 @@ export const controlStateSchema = z.object({
 
 type ControlState = z.infer<typeof controlStateSchema>;
 type ControlResult = { result?: unknown; error?: string };
-type Connection = { id: string; state: ControlState; revision: number; response: Response; pending?: { id: string; finish(result: ControlResult): void } };
+type Connection = { id: string; userId: string; state: ControlState; revision: number; response: Response; pending?: { id: string; finish(result: ControlResult): void } };
 // ACT: 控制连接只属于当前单进程，重连重新注册，不持久化运行中的命令。
 const connections = new Map<string, Connection>();
 
 export function getMcpSettings() {
-  const value = conf.get("settings", {}).mcp as { enabled?: unknown; token?: unknown; port?: unknown } | undefined;
+  const value = getConfig().get("settings", {}).mcp as { enabled?: unknown; token?: unknown; port?: unknown } | undefined;
   return {
     enabled: value?.enabled === true,
     token: typeof value?.token === "string" ? value.token : "",
@@ -32,7 +33,7 @@ export function getMcpSettings() {
 }
 
 function allowedHost(req: Request) {
-  return isMobileLinkRequest(req) || !getRuntimePlatform().requiresLocalHost || ["localhost", "127.0.0.1", "[::1]"].includes(req.hostname);
+  return !canManageHost() || isMobileLinkRequest(req) || !getRuntimePlatform().requiresLocalHost || ["localhost", "127.0.0.1", "[::1]"].includes(req.hostname);
 }
 
 export function getAppOrigin(req: Request) {
@@ -41,7 +42,8 @@ export function getAppOrigin(req: Request) {
   let url: URL;
   try { url = new URL(source); }
   catch { throw Object.assign(new Error("页面来源无效"), { status: 403 }); }
-  if (!["http:", "https:"].includes(url.protocol) || url.host !== req.get("host")) throw Object.assign(new Error("页面来源与服务地址不一致"), { status: 403 });
+  const expected = process.env.TOONFLOW_PUBLIC_URL ? new URL(process.env.TOONFLOW_PUBLIC_URL).host : req.get("host");
+  if (!["http:", "https:"].includes(url.protocol) || url.host !== expected) throw Object.assign(new Error("页面来源与服务地址不一致"), { status: 403 });
   return url.origin;
 }
 
@@ -67,23 +69,23 @@ export function assertControlRequest(req: Request) {
 }
 
 export function listConnections() {
-  return [...connections.values()].map(({ id, state }) => ({ id, state }));
+  return [...connections.values()].filter(item => item.userId === getCurrentUser().userId).map(({ id, state }) => ({ id, state }));
 }
 
 export function getConnection(id?: string, directory?: string) {
   if (id) {
     const connection = connections.get(id);
-    if (!connection) throw new Error("Toonflow 页面已断开，请重新调用 getAppState");
+    if (!connection || connection.userId !== getCurrentUser().userId) throw new Error("Toonflow 页面已断开，请重新调用 getAppState");
     return connection;
   }
-  const matches = [...connections.values()].filter(item => !directory || item.state.directory === directory);
+  const matches = [...connections.values()].filter(item => item.userId === getCurrentUser().userId && (!directory || item.state.directory === directory));
   if (matches.length > 1) throw new Error("存在多个 Toonflow 页面，请用 target.connectionId 指定操作目标");
   return matches[0];
 }
 
 export function connectControl(id: string, response: Response) {
   if (connections.has(id)) throw Object.assign(new Error("控制连接已存在"), { status: 409 });
-  const connection: Connection = { id, response, revision: 0, state: { directory: null, canvasId: null, panel: "home", projectList: [], tools: [] } };
+  const connection: Connection = { id, userId: getCurrentUser().userId, response, revision: 0, state: { directory: null, canvasId: null, panel: "home", projectList: [], tools: [] } };
   response.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" });
   response.flushHeaders();
   connections.set(id, connection);
@@ -140,10 +142,11 @@ export function callControl(connectionId: string, name: string, args: Record<str
   });
 }
 
-for (const key of ["settings.mcp.enabled", "settings.mcp.token"] as const) conf.onDidChange(key, () => {
+for (const key of ["settings.mcp.enabled", "settings.mcp.token"] as const) onConfigChange(key, () => {
   for (const connection of connections.values()) {
+    if (connection.userId !== getCurrentUser().userId) continue;
     connection.pending?.finish({ error: "MCP 设置已修改，控制命令已取消" });
     connection.response.end();
+    connections.delete(connection.id);
   }
-  connections.clear();
 });

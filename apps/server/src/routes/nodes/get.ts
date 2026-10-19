@@ -8,7 +8,7 @@ const router = Router();
 
 export default router.get("/", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  const canConfigure = u.workspace.isLocalWorkspaceRequest(req);
+  const canConfigure = u.workspace.canConfigureUser(req);
   const files = await readdir(u.nodePlugins.nodesDirectory, { withFileTypes: true }).catch((err: NodeJS.ErrnoException) => {
     if (err.code === "ENOENT") return [];
     throw err;
@@ -26,8 +26,8 @@ export default router.get("/", async (req, res) => {
       return {
         loadError: "",
         ...metadata,
-        url: `/api/nodes/files?name=${name}`,
-        enabled: !files.some((entry) => entry.name === `${name}.disabled`),
+        url: `/api/nodes/files?name=${name}&toonflowUser=${u.auth.getCurrentUser().userId}`,
+        enabled: u.isResourceEnabled("node", name),
         config: canConfigure ? u.nodePlugins.getNodeConfig(metadata) : {},
         canConfigure,
       };

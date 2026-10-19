@@ -7,27 +7,34 @@ import type { CanvasContext } from "@toonflow/tools-scaffold/runtime";
 import type { McpTool } from "@toonflow/mcp";
 import { createAgentTools } from "@/agent/tools";
 import { run as runAgent } from "@/agent";
-import conf from "@/utils/conf";
+import getConfig, { onConfigChange } from "@/utils/conf";
 import { callControl, getConnection, listConnections } from "@/utils/mcp/control";
 import { appOperations, runAppOperation } from "@/utils/mcp/operations";
 import { listTools } from "@/utils/plugins/tools";
 import { isWithin, lockWorkspaceFiles, protectWorkspaceRoot, renameWorkspaceFile, resolveWorkspacePath, writeWorkspaceFile } from "@/utils/workspace/files";
 import { getRuntimePlatform } from "@/lib/platform";
+import { getCurrentUser, canManageHost } from "@/lib/userContext";
 
 const targetSchema = z.strictObject({ connectionId: z.uuid().optional(), directory: z.string().min(1).max(4096).optional(), canvasId: z.string().min(1).max(256).optional() });
 const requestSchema = z.strictObject({ target: targetSchema.optional(), args: z.record(z.string(), z.unknown()) });
-let authorizationController = new AbortController();
-for (const key of ["settings.mcp.enabled", "settings.mcp.token"] as const) conf.onDidChange(key, () => {
-  authorizationController.abort();
-  authorizationController = new AbortController();
+const authorizationControllers = new Map<string, AbortController>();
+function getAuthorizationController() {
+  const id = getCurrentUser().userId;
+  let controller = authorizationControllers.get(id);
+  if (!controller) authorizationControllers.set(id, controller = new AbortController());
+  return controller;
+}
+for (const key of ["settings.mcp.enabled", "settings.mcp.token"] as const) onConfigChange(key, () => {
+  getAuthorizationController().abort();
+  authorizationControllers.delete(getCurrentUser().userId);
 });
 
 async function resolveDirectory(directory?: string) {
   if (!directory || !isAbsolute(directory)) throw new Error("请在 target.directory 指定绝对工作目录，或先打开项目");
   const path = await realpath(directory);
   if (!(await stat(path)).isDirectory()) throw new Error("工作目录不是文件夹");
-  if (!getRuntimePlatform().local) {
-    const root = await realpath(resolve(dirname(conf.path), "workspaces"));
+  if (!canManageHost() || !getRuntimePlatform().local) {
+    const root = await realpath(resolve(dirname(getConfig().path), "workspaces"));
     if (!isWithin(root, path)) throw new Error("服务器部署只能使用 data/workspaces 内的工作区");
   }
   return path;
@@ -95,13 +102,13 @@ async function assertFileNotOpen(directory: string, path: string) {
 }
 
 export async function getMcpTools(): Promise<McpTool[]> {
-  const authorizationSignal = authorizationController.signal;
+  const authorizationSignal = getAuthorizationController().signal;
   let pluginError: string | undefined;
   const tools: McpTool[] = [{
     name: "getAppState", description: "列出连接的 Toonflow 页面及其 connectionId、工作目录、画布、项目列表和节点能力。多个页面时必须用 target.connectionId 明确操作对象；无页面连接时只有显式 target.directory 的服务端工具可用。",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     async execute() {
-      const workspaceRoot = resolve(dirname(conf.path), "workspaces");
+      const workspaceRoot = resolve(dirname(getConfig().path), "workspaces");
       await mkdir(workspaceRoot, { recursive: true });
       return { connections: listConnections(), workspaceRoot, ...(pluginError ? { pluginError } : {}) };
     },
@@ -118,7 +125,7 @@ export async function getMcpTools(): Promise<McpTool[]> {
   }
   const canvasStub: CanvasContext = { id: "mcp", tools: [], async call() { throw new Error("尚未绑定画布"); } };
   // ACT: 插件损坏时仍保留应用管理工具，允许读取错误并修复插件。
-  const definitions = await createAgentTools(dirname(conf.path), canvasStub).catch(error => {
+  const definitions = await createAgentTools(dirname(getConfig().path), canvasStub).catch(error => {
     pluginError = error instanceof Error ? error.message : String(error);
     return [];
   });

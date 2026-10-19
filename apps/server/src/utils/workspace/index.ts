@@ -1,11 +1,13 @@
 import type { Request } from "express";
 import { realpath, stat } from "@toonflow/file";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
 import { getMobileLinkConfig, isMobileLinkRequest } from "@/utils/mobileLink";
 import { getRuntimePlatform } from "@/lib/platform";
+import { canManageHost } from "@/lib/userContext";
 
 export function isLocalWorkspaceRequest(req: Request) {
+  if (!canManageHost()) return false;
   if (isMobileLinkRequest(req)) return false;
   const localAddress = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? "") && req.get("x-toonflow-local-client") !== "0";
   const localHost = ["localhost", "127.0.0.1", "[::1]"].includes(req.hostname);
@@ -13,6 +15,10 @@ export function isLocalWorkspaceRequest(req: Request) {
   const localOrigin = `${req.protocol}://${req.get("host")}`;
   const sameOrigin = origin === undefined ? req.get("referer")?.startsWith(`${localOrigin}/`) : origin === localOrigin;
   return localAddress && localHost && sameOrigin && req.get("x-toonflow-workspace") === "1";
+}
+
+export function canConfigureUser(req: Request) {
+  return !canManageHost() || isLocalWorkspaceRequest(req);
 }
 
 export async function resolveWorkspace(req: Request, path: string) {
@@ -24,14 +30,14 @@ export async function resolveWorkspace(req: Request, path: string) {
   if (!(await stat(directory)).isDirectory()) throw Object.assign(new Error("工作目录不是文件夹，请重新选择"), { status: 404 });
   if (getRuntimePlatform().local && isLocalWorkspaceRequest(req)) return directory;
 
-  if (isMobileLinkRequest(req)) {
+  if (canManageHost() && isMobileLinkRequest(req)) {
     for (const root of getMobileLinkConfig().directories) {
       const offset = relative(root, directory);
       if (offset !== ".." && !offset.startsWith(`..${sep}`) && !isAbsolute(offset)) return directory;
     }
   }
 
-  const root = await realpath(resolve(dirname(conf.path), "workspaces")).catch((err: NodeJS.ErrnoException) => {
+  const root = await realpath(resolve(dirname(getConfig().path), "workspaces")).catch((err: NodeJS.ErrnoException) => {
     if (err.code === "ENOENT") return null;
     throw err;
   });

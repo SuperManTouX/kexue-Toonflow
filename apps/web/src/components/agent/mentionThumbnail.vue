@@ -7,6 +7,7 @@
 </template>
 
 <script setup lang="ts">
+import { apiUrl } from "@/lib/auth";
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import useWorkspaceFiles from "@/lib/workspaceFiles";
 
@@ -28,7 +29,7 @@ watch([inView, () => props.thumbnail?.url, () => props.thumbnail?.mimeType, () =
   failed.value = false;
   if (!visible || !path) return;
   if (globalAsset) {
-    previewUrl.value = `/api/assets/read?path=${encodeURIComponent(path)}`;
+    previewUrl.value = apiUrl(`/api/assets/read?path=${encodeURIComponent(path)}`);
     return;
   }
   if (!directory) return;

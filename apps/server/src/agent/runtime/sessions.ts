@@ -5,7 +5,7 @@ import { calculateContextTokens, estimateTokens, getLastAssistantUsage, parseSes
 import type { AgentSession, FileEntry, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { AgentEvent, AgentMention, AgentSubAgent, AgentToolCall } from "@/agent/runtime/types";
 import { agentMentionsSchema } from "@/agent/runtime/mentions";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
 import { providerSchema, getModelLimits } from "@/utils/ai";
 import { lockWorkspaceFiles, resolveWorkspacePath, writeWorkspaceFile } from "@/utils/workspace/files";
 import { getReadableFileMimeType } from "@/lib/documentFormats";
@@ -375,7 +375,7 @@ export async function getAgentSession(cwd: string, path: string) {
     lastReply?.type === "message" && lastReply.message.role === "assistant"
       ? { provider: lastReply.message.provider, modelId: lastReply.message.model }
       : context.model;
-  const providers = conf.get("settings", {}).customProviders;
+  const providers = getConfig().get("settings", {}).customProviders;
   const provider = providerSchema.safeParse(Array.isArray(providers) ? providers.find((item) => item?.id === model?.provider) : undefined);
   const configuredModel = provider.success ? provider.data.models.find((item) => item.id === model?.modelId) : undefined;
   const subAgents = new Map<string, AgentSubAgent>();

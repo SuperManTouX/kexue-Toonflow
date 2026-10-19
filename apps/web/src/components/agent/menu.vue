@@ -131,7 +131,7 @@ async function openMediaConfig() {
   if (configLoading.value) return;
   configLoading.value = true;
   try {
-    const { data } = await axios.get<{ code: number; data: { tools: (Plugin & { loadError?: string })[]; canManage: boolean }; message?: string }>("/api/tools/get", {
+    const { data } = await axios.get<{ code: number; data: { tools: (Plugin & { loadError?: string })[]; canManage: boolean; canConfigure?: boolean }; message?: string }>("/api/tools/get", {
       headers: { "Cache-Control": "no-cache", "x-toonflow-workspace": "1" },
     });
     if (data.code !== 200) throw new Error(data.message || "读取工具配置失败");
@@ -139,7 +139,7 @@ async function openMediaConfig() {
     if (!tool) throw new Error("请先安装媒体生成工具");
     if (tool.loadError) throw new Error(tool.loadError);
     mediaTool.value = { ...tool, key: `tool:${tool.name}`, type: "tool" };
-    canManageTools.value = data.data.canManage;
+    canManageTools.value = data.data.canManage || data.data.canConfigure === true;
     configVisible.value = true;
   } catch (error) {
     ElMessage.error(axios.isAxiosError(error) ? error.response?.data?.message || "读取工具配置失败" : error instanceof Error ? error.message : "读取工具配置失败");

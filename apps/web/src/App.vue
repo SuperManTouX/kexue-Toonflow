@@ -6,7 +6,7 @@
           <component :is="currentComponent" />
         </transition>
       </router-view>
-      <ffmpegRequired />
+      <ffmpegRequired v-if="canManageHost" />
       <updateBox
         v-if="updateBoxBuild && !installFailure"
         v-model="updateBoxVisible"
@@ -39,6 +39,7 @@
 </template>
 
 <script setup lang="ts">
+import { canManageHost } from "@/lib/auth";
 import { computed, onBeforeUnmount, ref, shallowRef, watch, watchEffect } from "vue";
 import { ElMessage, useZIndex } from "element-plus";
 import { elementLocales } from "@toonflow/i18n/elementPlus";

@@ -1,3 +1,4 @@
+import { getSharedDataDirectory } from "@/lib/userContext";
 import { t, translateMessage } from "@/lib/i18n";
 import { mkdir, mkdtemp, lstat, readFile, readdir, rename, rm, unlink, writeFile } from "@toonflow/file";
 import { dirname, join, resolve } from "node:path";
@@ -5,7 +6,7 @@ import { createRequire } from "node:module";
 import { crc32, inflateRawSync } from "node:zlib";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import type { PluginInstallType } from "@/types/desktop";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
 import { parseTool, toolsDirectory } from "@/utils/plugins/tools";
 import { extDirectory, parseExt } from "@/utils/plugins/ext";
 import { addMediaProvider } from "@/utils/media/provider";
@@ -122,7 +123,7 @@ export async function installNode(fileName: string, source: string, force = fals
   if (!source.includes(`toonflowNodes.${name}`)) invalid(t`文件名与节点导出名不一致：${fileName} 需要导出 toonflowNodes.${name}，请按实际节点名修改文件名`);
   try { new Bun.Transpiler({ loader: "js" }).scan(source); }
   catch { invalid("节点脚本语法无效，请重新构建并上传完整的 .umd.js 文件"); }
-  const directory = resolve(dirname(conf.path), "nodes");
+  const directory = resolve(getSharedDataDirectory(), "nodes");
   await mkdir(directory, { recursive: true });
   if ((await lstat(directory)).isSymbolicLink()) invalid("节点目录不能是符号链接", 403);
   const path = resolve(directory, fileName);
@@ -363,7 +364,7 @@ export async function installSkill(fileName: string, bytes: Uint8Array, force = 
   if (typeof name !== "string" || name.length > 64 || !/^[a-z0-9][a-zA-Z0-9]*(?:-[a-zA-Z0-9]+)*$/.test(name)) invalid("技能 name 必须为不超过 64 字符的小驼峰或短横线名称");
   skillPath(name);
   if (typeof description !== "string" || !description.trim() || description.length > 1024) invalid("技能 description 必须为 1 至 1024 字符");
-  const root = dirname(conf.path);
+  const root = dirname(getConfig().path);
   const directory = join(root, "skills");
   await mkdir(directory, { recursive: true });
   if ((await lstat(directory)).isSymbolicLink()) invalid("技能目录不能是符号链接", 403);

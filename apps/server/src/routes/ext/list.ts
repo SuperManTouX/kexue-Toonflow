@@ -18,8 +18,8 @@ export default Router().get("/", async (req, res) => {
         return { name, id: name, displayName: name, extensions: [], resourceKind: "file", version: "", readme: "", author: "", github: "", configRules: [],
           loadError: translateMessage(error instanceof Error ? error.message : "文件扩展无法读取") };
       });
-      return metadata && { loadError: "", ...metadata, canManage, canConfigure: canManage, config: canManage ? u.extPlugins.getExtConfig(metadata) : {},
-        enabled: !files.some(entry => entry.name === `${name}.disabled`), url: `/api/ext/read?name=${name}` };
+      return metadata && { loadError: "", ...metadata, canManage, canConfigure: u.workspace.canConfigureUser(req), config: u.workspace.canConfigureUser(req) ? u.extPlugins.getExtConfig(metadata) : {},
+        enabled: u.isResourceEnabled("ext", name), url: `/api/ext/read?name=${name}&toonflowUser=${u.auth.getCurrentUser().userId}` };
     }));
   res.set("Cache-Control", "no-store").json(success(extensions.filter(Boolean)));
 });

@@ -5,8 +5,10 @@ import { createServer, type Server } from "node:http";
 import { dirname, resolve } from "node:path";
 import type { Socket } from "node:net";
 import type { Express } from "express";
-import conf from "@/utils/conf";
+import getConfig, { onConfigChange } from "@/utils/conf";
 import { getMcpSettings } from "@/utils/mcp/control";
+import { canManageHost, getCurrentUser } from "@/lib/userContext";
+import { createInternalRequestToken } from "@/utils/auth/internalRequest";
 
 let runtime: { app: Express; appOrigin: string; requestHeaders: Record<string, string>; server?: Server; sockets?: Set<Socket>; url?: string; port?: number; preferredPort?: number; file?: string; command: string; entry: string; error?: string } | undefined;
 let reloadQueue = Promise.resolve();
@@ -31,11 +33,14 @@ function saveRuntime(value = runtime) {
 
 export function initializeMcpRuntime(app: Express, url: string, entry: string, command = process.execPath, requestHeaders: Record<string, string> = {}) {
   runtime = { app, appOrigin: new URL(url).origin, entry, command, requestHeaders: { ...requestHeaders } };
+  if (!canManageHost()) return Promise.resolve();
   return reloadMcpRuntime();
 }
 
-export function getAppRequestHeaders() {
-  return { ...runtime?.requestHeaders };
+export function getAppRequestHeaders(method: string, target: string, body?: string | ArrayBuffer) {
+  if (canManageHost()) return { ...runtime?.requestHeaders };
+  const userId = getCurrentUser().userId;
+  return { "x-toonflow-user": userId, "x-toonflow-internal": createInternalRequestToken(userId, method, target, body) };
 }
 
 export function stopMcpRuntime() {
@@ -53,6 +58,7 @@ export function stopMcpRuntime() {
 }
 
 export function reloadMcpRuntime() {
+  if (!canManageHost()) return Promise.resolve();
   // ACT: 设置保存和跨进程 watch 共用串行重载，避免同时抢端口；不重启宿主服务。
   reloadQueue = reloadQueue.catch(() => {}).then(async () => {
     const current = runtime;
@@ -86,7 +92,7 @@ export function reloadMcpRuntime() {
           if ((error as NodeJS.ErrnoException).code === "EADDRINUSE") continue;
           throw error;
         }
-        file = resolve(dirname(conf.path), `mcpRuntime${port}.json`);
+        file = resolve(dirname(getConfig().path), `mcpRuntime${port}.json`);
         const next = { ...current, server, sockets, preferredPort, port, url: `http://127.0.0.1:${port}/mcp`, file, error: undefined };
         saveRuntime(next);
         runtime = next;
@@ -111,7 +117,7 @@ export function getMcpRuntime() {
   const preferredPort = getMcpSettings().port;
   return {
     appOrigin: runtime?.appOrigin,
-    endpoint: runtime?.url ?? null,
+    endpoint: !canManageHost() && runtime ? `${process.env.TOONFLOW_PUBLIC_URL ?? runtime.appOrigin}/mcp` : runtime?.url ?? null,
     preferredPort,
     port: runtime?.port ?? null,
     error: runtime?.error ?? null,
@@ -121,7 +127,8 @@ export function getMcpRuntime() {
   };
 }
 
-conf.onDidChange("settings", (next, previous) => {
+onConfigChange("settings", (next, previous) => {
+  if (!canManageHost()) return;
   if (JSON.stringify(next?.mcp) === JSON.stringify(previous?.mcp)) return;
   saveRuntime();
   void reloadMcpRuntime().catch(error => console.error("重载 MCP 失败：", error));

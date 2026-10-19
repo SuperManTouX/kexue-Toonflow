@@ -1,9 +1,10 @@
 import { canvasOperations } from "@toonflow/tool-canvas/runtime";
+import { getCurrentUser } from "@/lib/userContext";
 import type { CanvasInfo, CanvasContext } from "@toonflow/tools-scaffold/runtime";
 import type { AgentEvent } from "@/agent/runtime/types";
 
 type CanvasResult = { result?: unknown; error?: string };
-type PendingCall = { cwd: string; finish(response: CanvasResult): void };
+type PendingCall = { userId: string; cwd: string; finish(response: CanvasResult): void };
 
 // ACT: 回传仅在当前 Server 进程存活期间有效；多进程部署需共享请求通道。
 const pendingCalls = new Map<string, PendingCall>();
@@ -34,7 +35,7 @@ export function createCanvasContext(cwd: string, canvas: CanvasInfo, send: (even
           };
           const abort = () => finish({ error: "画布调用已取消" });
           const timer = setTimeout(() => finish({ error: "画布调用超时，请确认画布仍然打开" }), 120000);
-          pendingCalls.set(callId, { cwd, finish });
+          pendingCalls.set(callId, { userId: getCurrentUser().userId, cwd, finish });
           activeCalls.add(callId);
           signal?.addEventListener("abort", abort, { once: true });
           try { send({ type: "canvasCall", callId, name: operation.name, args }); }
@@ -58,6 +59,6 @@ export function finishCanvasCall(cwd: string, callId: string, response: CanvasRe
   const pending = pendingCalls.get(callId);
   // 超时、取消或完成后仍可能收到回传，幂等忽略，避免中断整轮对话。
   if (!pending) return;
-  if (pending.cwd !== cwd) throw Object.assign(new Error("画布调用不存在或已结束"), { status: 404 });
+  if (pending.cwd !== cwd || pending.userId !== getCurrentUser().userId) throw Object.assign(new Error("画布调用不存在或已结束"), { status: 404 });
   pending.finish(response);
 }

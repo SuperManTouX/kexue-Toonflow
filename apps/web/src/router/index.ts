@@ -8,6 +8,10 @@ const router = createRouter({
       redirect: "/hello",
     },
     {
+      path: "/token-login",
+      redirect: "/",
+    },
+    {
       path: "/hello",
       beforeEnter: async () => await useHelloStore().load() ? { path: "/home", replace: true } : true,
       component: () => import("@/pages/hello/index.vue"),

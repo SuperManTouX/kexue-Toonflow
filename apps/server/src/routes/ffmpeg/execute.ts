@@ -30,6 +30,11 @@ const requests = new Map<string, { controller: AbortController; finished: Promis
 export default Router().post("/", validateFields(inputSchema.shape), async (req, res) => {
   u.mcpControl.assertAppRequest(req);
   const input = inputSchema.parse(req.body, validationOptions()) as BrowserFfmpegRequest;
+  if (!u.auth.canManageHost() && !(input.operation.method === "prepare" && input.operation.args.length === 0
+    && !input.operation.undefinedArgs?.length && input.calls.length === 0 && Object.keys(input.options).length === 0)) {
+    // ACT: FFmpeg 参数可通过 filters、raw args 和清单触发间接文件或网络 I/O；没有 OS 沙箱前，多用户 Web 只允许无参数探测。
+    throw Object.assign(new Error("多用户 Web 服务暂不允许执行 FFmpeg 任务"), { status: 403 });
+  }
   const cwd = await u.workspace.resolveWorkspace(req, input.directory);
   const requestKey = `${cwd}\0${input.requestId}`;
   if (input.operation.method === "cancel") {
@@ -51,12 +56,17 @@ export default Router().post("/", validateFields(inputSchema.shape), async (req,
   req.socket.once("close", close);
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   try {
+    if (input.operation.method === "prepare" && !u.auth.canManageHost()) {
+      await u.ffmpeg.ensureFfmpegAvailable(controller.signal);
+      res.json(success());
+      return;
+    }
     const factory = await u.ffmpeg.createWorkspaceFfmpeg(cwd, controller.signal);
     if (input.operation.method === "prepare") {
       res.json(success());
       return;
     }
-    res.set({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" });
+    res.set({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": u.auth.canManageHost() ? "no-cache, no-transform" : "private, no-store, no-transform", "X-Accel-Buffering": "no" });
     res.flushHeaders();
     heartbeat = setInterval(() => { if (!res.destroyed) res.write(": keepalive\n\n"); }, 1000);
     await u.ffmpeg.executeRemoteFfmpeg(factory, input, event => {

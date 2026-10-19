@@ -1,4 +1,7 @@
+import { appFetch } from "@/lib/auth";
+import { initializeAuth, AuthRequiredError } from "@/lib/auth";
 import { createApp, h, nextTick, ref } from "vue";
+import authGate from "@/components/authGate.vue";
 import { ElButton, ElResult } from "element-plus";
 import { createPinia } from "pinia";
 import { createPersistedState } from "pinia-plugin-persistedstate";
@@ -20,6 +23,27 @@ import { checkDesktopUpdate } from "@/stores/desktopUpdate";
 import { registerLanguage } from "@/lib/i18n";
 import { locale, translate } from "@toonflow/i18n/vue";
 
+function getInitialAuthToken() {
+  const initialUrl = new URL(window.location.href);
+  const initialRoute = router.resolve(initialUrl.hash.slice(1) || "/");
+  const routeToken = initialRoute.query.externaltoken;
+  const routeTokenValue = Array.isArray(routeToken) ? routeToken[0] : routeToken;
+  let externalToken: string | null = null;
+  if (initialRoute.path === "/token-login") {
+    externalToken = typeof routeTokenValue === "string" ? routeTokenValue : initialUrl.searchParams.get("externaltoken");
+  }
+  const hasRouteToken = routeToken !== undefined;
+  const hasUrlToken = initialUrl.searchParams.has("externaltoken");
+  const routeQuery = { ...initialRoute.query };
+  delete routeQuery.externaltoken;
+  const cleanRoute = router.resolve({ path: initialRoute.path, query: routeQuery, hash: initialRoute.hash }).fullPath;
+  initialUrl.searchParams.delete("externaltoken");
+  if (hasRouteToken) initialUrl.hash = cleanRoute;
+  if (hasRouteToken || hasUrlToken) history.replaceState(history.state, "", initialUrl.href);
+  return externalToken ?? null;
+}
+
+const initialAuthToken = getInitialAuthToken();
 const app = createApp(App);
 app.onUnmount(registerLanguage());
 const requiresWebView2Update = isDesktop && /Windows/i.test(navigator.userAgent)
@@ -29,7 +53,7 @@ let isMounted = false;
 
 async function notifyDesktopReady(failed = false) {
   if (!isDesktop) return;
-  const response = await fetch("/api/desktop/ready", {
+  const response = await appFetch("/api/desktop/ready", {
     method: "POST",
     headers: { "x-toonflow-desktop": "1", "Content-Type": "application/json", "Accept-Language": locale.value },
     body: JSON.stringify({ failed }),
@@ -42,7 +66,7 @@ async function notifyDesktopReady(failed = false) {
   ? Promise.reject(new Error("当前 Microsoft Edge WebView2 Runtime 版本过旧。请以管理员身份运行微软最新版安装器；若仍提示已安装，请修复 WebView2 或联系管理员检查更新服务。更新完成后，请完全退出 Toonflow 再重新打开。"))
   : requiresMobileWebViewUpdate
   ? Promise.reject(new Error("当前移动端浏览器内核缺少 Toonflow 所需能力。请更新 Toonflow 和系统浏览器内核；部分系统需要通过系统更新升级。更新完成后，请完全退出并重新打开 Toonflow。"))
-  : loadSettings()).then(async () => {
+  : initializeAuth(initialAuthToken).then(() => loadSettings())).then(async () => {
   app.use(createPinia().use(createPersistedState({ storage: settingsStorage })));
   app.use(router);
   await router.isReady();
@@ -61,6 +85,10 @@ async function notifyDesktopReady(failed = false) {
   // ACT: 桌面启动后只静默检查一次；失败留待用户手动重试，不阻塞启动或自动下载。
   if (!isRemoteConnection) void checkDesktopUpdate(true).catch(() => {});
 }).catch(async (error) => {
+  if (error instanceof AuthRequiredError) {
+    createApp(authGate, { message: error.message }).mount("#app");
+    return;
+  }
   console.error("页面初始化失败：", error);
   if (isMounted) app.unmount();
   const disconnecting = ref(false);
@@ -70,7 +98,7 @@ async function notifyDesktopReady(failed = false) {
     disconnecting.value = true;
     recoveryError.value = "";
     try {
-      const response = await fetch("/api/connection/disconnect", { method: "POST", headers: { "x-toonflow-workspace": "1" } });
+      const response = await appFetch("/api/connection/disconnect", { method: "POST", headers: { "x-toonflow-workspace": "1" } });
       if (!response.ok) throw new Error((await response.json()).message || "切回本机失败，请重试");
       if ((await response.json()).restart === "mobile") window.location.href = "toonflow://restart";
     } catch (cause) {

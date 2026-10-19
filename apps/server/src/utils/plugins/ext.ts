@@ -1,12 +1,13 @@
+import { getSharedDataDirectory } from "@/lib/userContext";
 import { lstat, readFile } from "@toonflow/file";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
 import { t, translateMessage } from "@/lib/i18n";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
 import { configFields, configRulesSchema, declaredConfig, validateNodeConfig } from "@/utils/plugins/nodes";
 
 export const extNameSchema = z.string().max(96).regex(/^ext-[a-z][a-zA-Z0-9]*$/);
-export const extDirectory = resolve(dirname(conf.path), "ext");
+export const extDirectory = resolve(getSharedDataDirectory(), "ext");
 const metadataSchema = z.object({
   id: extNameSchema,
   displayName: z.string().trim().min(1),
@@ -50,7 +51,7 @@ export async function readExt(name: string) {
 }
 
 export function getExtConfig(extension: { name: string; configRules: z.infer<typeof configRulesSchema> }) {
-  const configs = conf.get("extConfigs", {});
+  const configs = getConfig().get("extConfigs", {});
   return declaredConfig(extension.configRules, Object.hasOwn(configs, extension.name) ? configs[extension.name]! : {});
 }
 

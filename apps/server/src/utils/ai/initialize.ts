@@ -1,10 +1,11 @@
 import tfRouter from "@toonflow/providers/language/tfRouter";
 import tfRouterMedia from "@toonflow/providers/media/tfRouter";
-import conf from "@/utils/conf";
+import getConfig from "@/utils/conf";
+import { getCurrentUser } from "@/lib/userContext";
 import { fetchProviderModels } from "@/utils/ai/models";
 import { getMediaProviderApiKey, refreshMediaProviderModels } from "@/utils/media/provider";
 
-let initialization: Promise<void> | undefined;
+const initializations = new Map<string, Promise<void>>();
 
 function normalizeApiKey(value: unknown) {
   return typeof value === "string" ? value.trim().replace(/^Bearer(?:\s+|$)/i, "").trim() : "";
@@ -18,18 +19,18 @@ function getLanguageProvider(settings: Record<string, unknown>) {
 }
 
 async function refreshLanguageModels(previousSettings?: Record<string, unknown>) {
-  const provider = getLanguageProvider(conf.get("settings", {}));
+  const provider = getLanguageProvider(getConfig().get("settings", {}));
   const apiKey = normalizeApiKey(provider?.apiKey);
   if (!apiKey || (previousSettings && apiKey === normalizeApiKey(getLanguageProvider(previousSettings)?.apiKey))) return;
   const models = await fetchProviderModels({ apiUrl: provider.apiUrl, protocol: provider.protocol, apiKey });
   if (!models.length) throw new Error("未获取到文本模型，保留原有列表");
-  const current = conf.get("settings.customProviders");
+  const current = getConfig().get("settings.customProviders");
   if (!Array.isArray(current)) return;
   const index = current.findIndex(item => item?.id === provider.id && item.apiUrl === provider.apiUrl
     && item.protocol === provider.protocol && item.apiKey === provider.apiKey);
   if (index === -1) return;
   const providers = current.map((item, itemIndex) => itemIndex === index ? { ...item, models } : item);
-  conf.set("settings.customProviders", providers);
+  getConfig().set("settings.customProviders", providers);
   return providers;
 }
 
@@ -57,15 +58,19 @@ export async function refreshProviderModels(previousSettings?: Record<string, un
     if (result.status === "rejected") errors.push(`TF-Router ${label}模型更新失败：${result.reason instanceof Error ? result.reason.message : "未知错误"}`);
   }
   return {
-    ...(language.status === "fulfilled" && language.value ? { customProviders: conf.get("settings.customProviders") as typeof language.value } : {}),
+    ...(language.status === "fulfilled" && language.value ? { customProviders: getConfig().get("settings.customProviders") as typeof language.value } : {}),
     ...(media.status === "fulfilled" && media.value ? { mediaProvider: media.value } : {}),
     ...(errors.length ? { modelRefreshErrors: errors } : {}),
   };
 }
 
 export default function initializeProviderModels() {
-  // ACT: 每个进程启动时仅尝试一次；失败保留已有模型，下次启动再更新。
-  return initialization ??= refreshProviderModels().then(result => {
+  const userId = getCurrentUser().userId;
+  let initialization = initializations.get(userId);
+  if (initialization) return initialization;
+  initialization = refreshProviderModels().then(result => {
     result.modelRefreshErrors?.forEach(error => console.warn(error));
   });
+  initializations.set(userId, initialization);
+  return initialization;
 }

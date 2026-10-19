@@ -174,6 +174,7 @@ import type { NodeDocumentContext, NodeDocumentState } from "@toonflow/nodes-sca
 import { useNodeToolsContext } from "@toonflow/nodes-scaffold/nodeTools";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { generalSettings } from "@/stores/settings";
+import { apiUrl } from "@/lib/auth";
 import { getShortcutBindings, shortcutLabel, shortcutMatches, shortcutPressed } from "@/lib/canvasShortcuts";
 import useWorkspaceFiles from "@/lib/workspaceFiles";
 import anonymousData from "@/lib/anonymousData";
@@ -1071,7 +1072,7 @@ provide("workspaceDirectory", () => {
 provide("reloadRemoteNode", (type: string) => {
   const name = type.replace(/^remote-/, "");
   if (!type.startsWith("remote-") || !/^[a-z][a-zA-Z0-9]*$/.test(name)) throw new Error("节点类型无效");
-  return loadNode(name, `/api/nodes/files?name=${name}`, true);
+  return loadNode(name, apiUrl(`/api/nodes/files?name=${name}`), true);
 });
 
 async function loadNode(name: string, url: string, force = false): Promise<void> {
@@ -1124,7 +1125,7 @@ async function loadRemoteNodes(reloadName?: string) {
     if (requestId !== loadRequest) return;
     if (data.code !== 200 || !Array.isArray(data.data)) throw new Error("节点列表格式错误");
     const nodes = data.data.filter(node => {
-      if (!node || typeof node.name !== "string" || !/^[a-z][a-zA-Z0-9]*$/.test(node.name) || node.url !== `/api/nodes/files?name=${node.name}`) {
+      if (!node || typeof node.name !== "string" || !/^[a-z][a-zA-Z0-9]*$/.test(node.name) || node.url !== apiUrl(`/api/nodes/files?name=${node.name}`)) {
         console.error("节点地址无效", node);
         return false;
       }
