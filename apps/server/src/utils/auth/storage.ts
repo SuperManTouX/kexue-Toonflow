@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { chmod, lstat, mkdir, readFile, writeAtomic } from "@toonflow/file";
 import type { SuanliIdentity } from "@/lib/userContext";
@@ -12,8 +12,18 @@ const suanliIdentitySchema = z.object({
   sessionId: z.string().trim().min(1).max(4096),
   schoolId: z.string().trim().min(1).max(256).optional(),
 });
+const encryptedTokenSchema = z.object({
+  iv: z.string().regex(/^[A-Za-z0-9_-]{16}$/),
+  authTag: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
+  ciphertext: z.string().min(1).max(65536),
+});
 const identitySchema = z.object({ users: z.record(z.string(), userSchema), credentials: z.record(z.string(), z.object({ userId: z.uuid(), kind: z.enum(["mcp", "a2a"]) })) });
-const sessionsSchema = z.record(z.string(), z.object({ userId: z.uuid(), expiresAt: z.number().finite(), suanliIdentity: suanliIdentitySchema.optional() }));
+const sessionsSchema = z.record(z.string(), z.object({
+  userId: z.uuid(),
+  expiresAt: z.number().finite(),
+  suanliIdentity: suanliIdentitySchema.optional(),
+  suanliCredential: encryptedTokenSchema.optional(),
+}));
 let directory = "";
 let identityKey: Buffer;
 let identities: z.infer<typeof identitySchema> = { users: {}, credentials: {} };
@@ -28,6 +38,23 @@ function serialize<T>(operation: () => Promise<T>): Promise<T> {
 }
 export function hashCredential(value: string) { return createHash("sha256").update(value).digest("hex"); }
 function findUser(id: string) { return Object.values(identities.users).find(user => user.id === id); }
+function encryptSuanliToken(token: string, sessionHash: string, userId: string) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", identityKey, iv);
+  cipher.setAAD(Buffer.from(`${sessionHash}\0${userId}`));
+  const ciphertext = Buffer.concat([cipher.update(token, "utf8"), cipher.final()]);
+  return { iv: iv.toString("base64url"), authTag: cipher.getAuthTag().toString("base64url"), ciphertext: ciphertext.toString("base64url") };
+}
+function decryptSuanliToken(credential: z.infer<typeof encryptedTokenSchema>, sessionHash: string, userId: string) {
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", identityKey, Buffer.from(credential.iv, "base64url"));
+    decipher.setAAD(Buffer.from(`${sessionHash}\0${userId}`));
+    decipher.setAuthTag(Buffer.from(credential.authTag, "base64url"));
+    return Buffer.concat([decipher.update(Buffer.from(credential.ciphertext, "base64url")), decipher.final()]).toString("utf8");
+  } catch {
+    throw new Error("认证存储中的 SXWZ 凭证无法解密");
+  }
+}
 async function loadJson(path: string) {
   const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return null;
@@ -70,9 +97,12 @@ export async function initializeAuthStorage(root: string) {
   const loadedSessions = sessionsSchema.safeParse(loadedSessionsValue ?? {});
   if (!loadedIdentities.success || !loadedSessions.success) throw new Error("认证存储格式无效");
   identities = loadedIdentities.data;
-  sessions = loadedSessions.data;
+  sessions = Object.fromEntries(Object.entries(loadedSessions.data).filter(([, session]) => session.expiresAt > Date.now()));
+  if (Object.keys(sessions).length !== Object.keys(loadedSessions.data).length) {
+    await writeAtomic(sessionsPath, JSON.stringify(sessions), { mode: 0o600 });
+  }
 }
-export function createStoredLogin(userName: string, externalSubject: string, suanliIdentity: SuanliIdentity) {
+export function createStoredLogin(userName: string, externalSubject: string, suanliIdentity: SuanliIdentity, suanliToken: string) {
   return serialize(async () => {
     const subjectHash = createHmac("sha256", identityKey).update("sxwz\0").update(externalSubject).digest("hex");
     const user = { id: identities.users[subjectHash]?.id ?? randomUUID(), name: userName };
@@ -80,9 +110,15 @@ export function createStoredLogin(userName: string, externalSubject: string, sua
     await writeAtomic(join(directory, "identities.json"), JSON.stringify(nextIdentities), { mode: 0o600 });
     identities = nextIdentities;
     const sessionToken = randomBytes(32).toString("base64url");
+    const sessionHash = hashCredential(sessionToken);
     const expiresAt = Date.now() + sessionLifetime;
     const nextSessions = Object.fromEntries(Object.entries(sessions).filter(([, session]) => session.expiresAt > Date.now()));
-    nextSessions[hashCredential(sessionToken)] = { userId: user.id, expiresAt, suanliIdentity };
+    nextSessions[sessionHash] = {
+      userId: user.id,
+      expiresAt,
+      suanliIdentity,
+      suanliCredential: encryptSuanliToken(suanliToken, sessionHash, user.id),
+    };
     await writeAtomic(join(directory, "sessions.json"), JSON.stringify(nextSessions), { mode: 0o600 });
     sessions = nextSessions;
     return { user, sessionToken, expiresAt };
@@ -93,9 +129,27 @@ export async function resolveSession(token: string) {
   if (!/^[\w-]{43}$/.test(token)) return;
   const sessionHash = hashCredential(token);
   const session = sessions[sessionHash];
-  if (!session || session.expiresAt <= Date.now()) return;
+  if (!session) return;
+  if (session.expiresAt <= Date.now()) {
+    await serialize(async () => {
+      const current = sessions[sessionHash];
+      if (!current || current.expiresAt > Date.now()) return;
+      const next = { ...sessions };
+      delete next[sessionHash];
+      await writeAtomic(join(directory, "sessions.json"), JSON.stringify(next), { mode: 0o600 });
+      sessions = next;
+    });
+    return;
+  }
   const user = findUser(session.userId);
-  return user ? { user, sessionHash, expiresAt: session.expiresAt, suanliIdentity: session.suanliIdentity } : undefined;
+  if (!user) return;
+  return {
+    user,
+    sessionHash,
+    expiresAt: session.expiresAt,
+    suanliIdentity: session.suanliIdentity,
+    suanliToken: session.suanliCredential ? decryptSuanliToken(session.suanliCredential, sessionHash, session.userId) : undefined,
+  };
 }
 export async function findStoredUser(id: string) {
   await queue;

@@ -26,8 +26,10 @@ export async function initializeAuth({ dataDirectory, mode }: { dataDirectory: s
   }
 }
 export async function createLogin(token: string) {
-  const identity = await verifyExternalToken(token);
-  return createStoredLogin(identity.userName, identity.externalSubject, identity.suanliIdentity);
+  const suanliToken = token.trim();
+  if (!suanliToken || suanliToken.length > 8192) throw Object.assign(new Error("SXWZ 登录凭证无效"), { status: 401 });
+  const identity = await verifyExternalToken(suanliToken);
+  return createStoredLogin(identity.userName, identity.externalSubject, identity.suanliIdentity, suanliToken);
 }
 export async function resolveServiceCredential(kind: ServiceKind, token: string) {
   if (getAuthMode() !== "sxwz" || token.length < 32 || token.length > 8192) return;

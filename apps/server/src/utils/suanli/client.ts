@@ -1,3 +1,5 @@
+import { getAuthMode, getCurrentUser } from "@/lib/userContext";
+
 const requestTimeout = 15000;
 const maxResponseBytes = 10 * 1024 * 1024;
 
@@ -34,6 +36,11 @@ function aigcUrl(path: string) {
 }
 
 function suanliToken() {
+  if (getAuthMode() === "sxwz") {
+    const token = getCurrentUser().suanliToken?.trim();
+    if (!token || token.length > 8192) throw failure("当前会话缺少有效的 SXWZ 算力凭证，请重新登录", 401);
+    return token;
+  }
   const token = process.env.SUANLI_API_TOKEN?.trim();
   if (!token || token.length > 8192) throw failure("请配置有效的 SUANLI_API_TOKEN", 500);
   return token;
