@@ -6,7 +6,8 @@
     <el-form v-else class="taskFields" labelPosition="top">
       <template v-for="field in params" :key="field.name">
         <el-form-item v-if="field.ui !== 'hidden'" :label="field.label" :required="field.required" :error="fieldErrors[field.name]">
-          <el-input v-if="field.ui === 'textarea'" :modelValue="stringValue(field)" type="textarea" :rows="3" :maxlength="20000" showWordLimit :disabled="disabled" @update:modelValue="setFieldValue(field.name, $event)" />
+          <el-input v-if="field.ui === 'textarea'" :modelValue="stringValue(field)" type="textarea" :rows="3" :maxlength="field.maxLength ?? 20000" showWordLimit :disabled="disabled" @update:modelValue="setFieldValue(field.name, $event)" />
+          <el-switch v-else-if="field.ui === 'switch'" :modelValue="booleanValue(field)" :disabled="disabled" :aria-label="field.label" @update:modelValue="setFieldValue(field.name, $event)" />
           <el-select v-else-if="field.ui === 'proportion' || field.ui === 'resolution' || field.ui === 'select' || field.ui === 'quantity'" :modelValue="optionValue(field)" :disabled="disabled" class="fieldControl" @update:modelValue="setFieldValue(field.name, $event)">
             <el-option v-for="option in field.options" :key="String(option)" :label="String(option)" :value="option" />
           </el-select>
@@ -15,7 +16,7 @@
             <span aria-hidden="true">{{ field.dimension.separator }}</span>
             <el-input-number :modelValue="getDimensionPart(field, 'height')" :min="field.dimension.height?.min ?? 1" :max="field.dimension.height?.max" :disabled="disabled" controlsPosition="right" aria-label="高度" @update:modelValue="setDimensionPart(field, 'height', $event)" />
           </div>
-          <el-input-number v-else-if="field.ui === 'dimensionWidth' || field.ui === 'dimensionHeight'" :modelValue="numberValue(field)" :min="field.min" :max="field.max" :precision="0" :disabled="disabled" controlsPosition="right" :aria-label="field.label" class="fieldControl" @update:modelValue="setFieldValue(field.name, $event)" />
+          <el-input-number v-else-if="field.ui === 'dimensionWidth' || field.ui === 'dimensionHeight' || field.ui === 'number'" :modelValue="numberValue(field)" :min="field.min" :max="field.max" :step="field.ui === 'number' ? field.step ?? 1 : 1" :precision="field.ui === 'number' && field.step && !Number.isInteger(field.step) ? undefined : 0" :disabled="disabled" controlsPosition="right" :aria-label="field.label" class="fieldControl" @update:modelValue="setFieldValue(field.name, $event)" />
           <div v-else-if="field.ui === 'imageUpload'" class="imageField">
             <label class="imagePicker" :class="{ disabled: disabled || !imageUploadAvailable || uploadingField === field.name }">
               <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" :multiple="field.maxCount > 1" :disabled="disabled || !imageUploadAvailable || uploadingField === field.name" @change="uploadImages(field, $event)" />
@@ -38,8 +39,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onScopeDispose, reactive, ref, toRaw, watch } from "vue";
-import { ElButton, ElForm, ElFormItem, ElImage, ElInput, ElInputNumber, ElOption, ElSelect } from "element-plus";
+import { computed, onScopeDispose, reactive, ref, watch } from "vue";
+import { ElButton, ElForm, ElFormItem, ElImage, ElInput, ElInputNumber, ElOption, ElSelect, ElSwitch } from "element-plus";
 import { useNodeAi, type NodeSuanliParam } from "@toonflow/nodes-scaffold/nodeAi";
 
 const props = defineProps<{ modelRef: string; modelValue?: { modelRef: string; values: Record<string, unknown> }; disabled?: boolean; referenceText?: string }>();
@@ -57,19 +58,25 @@ let uploadController: AbortController | undefined;
 const requiredImageUploadUnavailable = computed(() => !imageUploadAvailable.value
   && params.value.some(field => field.ui === "imageUpload" && field.required));
 
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 function initializeValues(fields: NodeSuanliParam[]) {
   for (const key of Object.keys(values)) delete values[key];
   const restored = props.modelValue?.modelRef === props.modelRef ? props.modelValue.values : {};
   for (const field of fields) {
-    if (Object.hasOwn(restored, field.name)) values[field.name] = structuredClone(toRaw(restored[field.name]));
-    else if (field.default !== undefined) values[field.name] = structuredClone(field.default);
+    if (Object.hasOwn(restored, field.name)) {
+      const value = restored[field.name];
+      values[field.name] = value === undefined ? value : cloneJson(value);
+    } else if (field.default !== undefined) values[field.name] = cloneJson(field.default);
   }
   fieldErrors.value = {};
   emitValues();
 }
 
 function emitValues() {
-  emit("update:modelValue", { modelRef: props.modelRef, values: structuredClone(toRaw(values)) });
+  emit("update:modelValue", { modelRef: props.modelRef, values: cloneJson(values) });
 }
 
 async function loadTemplate(modelRef: string, signal: AbortSignal) {
@@ -96,12 +103,16 @@ function stringValue(field: Extract<NodeSuanliParam, { ui: "textarea" }>) {
   return typeof values[field.name] === "string" ? values[field.name] as string : "";
 }
 
+function booleanValue(field: Extract<NodeSuanliParam, { ui: "switch" }>) {
+  return typeof values[field.name] === "boolean" ? values[field.name] as boolean : false;
+}
+
 function optionValue(field: Extract<NodeSuanliParam, { ui: "proportion" | "resolution" | "select" | "quantity" }>) {
   const value = values[field.name];
   return typeof value === "string" || typeof value === "number" ? value : "";
 }
 
-function numberValue(field: Extract<NodeSuanliParam, { ui: "dimensionWidth" | "dimensionHeight" }>) {
+function numberValue(field: Extract<NodeSuanliParam, { ui: "dimensionWidth" | "dimensionHeight" | "number" }>) {
   return typeof values[field.name] === "number" ? values[field.name] as number : undefined;
 }
 
@@ -135,7 +146,8 @@ async function uploadImages(field: Extract<NodeSuanliParam, { ui: "imageUpload" 
   uploadingField.value = field.name;
   try {
     for (const file of selected.slice(0, remaining)) {
-      if (file.size > 20 * 1024 * 1024) throw new Error("图片不能超过 20 MB");
+      const maxSizeMB = Math.min(field.maxSizeMB ?? 20, 20);
+      if (file.size > maxSizeMB * 1024 * 1024) throw new Error(`图片不能超过 ${maxSizeMB} MB`);
       const url = await ai.uploadSuanliImage(file, controller.signal);
       setFieldValue(field.name, [...imageValues(field), url]);
     }
@@ -161,7 +173,12 @@ function validateValues() {
       continue;
     }
     if (field.ui === "textarea") {
-      if (typeof value !== "string" || value.length > 20000 || (field.required && !value.trim())) errors[field.name] = "请输入有效内容";
+      if (typeof value !== "string" || value.length > (field.maxLength ?? 20000) || (field.required && !value.trim())) errors[field.name] = "请输入有效内容";
+    } else if (field.ui === "switch") {
+      if (typeof value !== "boolean") errors[field.name] = "请选择有效状态";
+    } else if (field.ui === "number") {
+      if (typeof value !== "number" || !Number.isFinite(value)
+        || (field.min !== undefined && value < field.min) || (field.max !== undefined && value > field.max)) errors[field.name] = "请输入有效数值";
     } else if (field.ui === "proportion" || field.ui === "resolution" || field.ui === "select" || field.ui === "quantity") {
       if (!field.options.some(option => Object.is(option, value))) errors[field.name] = "请选择有效选项";
     } else if (field.ui === "dimension") {

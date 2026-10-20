@@ -8,7 +8,9 @@ const fieldBase = {
 };
 
 export const suanliParamSchema = z.discriminatedUnion("ui", [
-  z.object({ ...fieldBase, ui: z.literal("textarea") }),
+  z.object({ ...fieldBase, ui: z.literal("textarea"), maxLength: z.number().int().positive().max(20000).optional() }),
+  z.object({ ...fieldBase, default: z.boolean().optional(), ui: z.literal("switch") }),
+  z.object({ ...fieldBase, ui: z.literal("number"), min: z.number().finite().optional(), max: z.number().finite().optional(), step: z.number().finite().positive().optional() }),
   z.object({ ...fieldBase, ui: z.literal("proportion"), options: z.array(z.string().min(1)).min(1).max(100) }),
   z.object({ ...fieldBase, ui: z.literal("hidden") }),
   z.object({
@@ -24,7 +26,7 @@ export const suanliParamSchema = z.discriminatedUnion("ui", [
   z.object({ ...fieldBase, ui: z.literal("quantity"), options: z.array(z.number().finite()).min(1).max(100) }),
   z.object({ ...fieldBase, ui: z.literal("resolution"), options: z.array(z.string().min(1)).min(1).max(100) }),
   z.object({ ...fieldBase, ui: z.literal("select"), options: z.array(z.union([z.string(), z.number().finite()])).min(1).max(100) }),
-  z.object({ ...fieldBase, ui: z.literal("imageUpload"), maxCount: z.number().int().positive().max(100) }),
+  z.object({ ...fieldBase, ui: z.literal("imageUpload"), maxCount: z.number().int().positive().max(100), maxSizeMB: z.number().finite().positive().max(50).optional() }),
 ]);
 
 export const suanliParamsSchema = z.array(suanliParamSchema).max(100);

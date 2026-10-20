@@ -26,7 +26,9 @@ type NodeSuanliParamBase = {
   required?: boolean;
 };
 export type NodeSuanliParam =
-  | (NodeSuanliParamBase & { ui: "textarea" })
+  | (NodeSuanliParamBase & { ui: "textarea"; maxLength?: number })
+  | (NodeSuanliParamBase & { ui: "switch"; default?: boolean })
+  | (NodeSuanliParamBase & { ui: "number"; min?: number; max?: number; step?: number })
   | (NodeSuanliParamBase & { ui: "hidden" })
   | (NodeSuanliParamBase & { ui: "proportion"; options: string[] })
   | (NodeSuanliParamBase & { ui: "resolution"; options: string[] })
@@ -34,7 +36,7 @@ export type NodeSuanliParam =
   | (NodeSuanliParamBase & { ui: "select"; options: (string | number)[] })
   | (NodeSuanliParamBase & { ui: "dimension"; dimension: { width?: { min?: number; max?: number }; height?: { min?: number; max?: number }; separator: string } })
   | (NodeSuanliParamBase & { ui: "dimensionWidth" | "dimensionHeight"; min?: number; max?: number })
-  | (NodeSuanliParamBase & { ui: "imageUpload"; maxCount: number });
+  | (NodeSuanliParamBase & { ui: "imageUpload"; maxCount: number; maxSizeMB?: number });
 export type NodeSuanliModelConfig = { params: NodeSuanliParam[]; imageUploadAvailable: boolean };
 export type NodeImageRequest = {
   directory: string;

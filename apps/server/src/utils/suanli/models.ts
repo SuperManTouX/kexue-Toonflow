@@ -44,6 +44,7 @@ const aigcConfigSchema = z.object({
   params: z.unknown(),
 });
 const pageSize = 100;
+const templateBatchSize = 4;
 const platformCodes = ["ai_chat", "ai_painting_talk", "ai_video_talk", "ai_music_talk"];
 type AigcModelTemplate = { modelId?: string; platformId?: string; params: SuanliParam[] };
 
@@ -170,18 +171,22 @@ function readModelTemplate(value: unknown): AigcModelTemplate | undefined {
 }
 
 async function readBatchParams(modelIds: string[]): Promise<Map<string, AigcModelTemplate>> {
-  if (!modelIds.length) return new Map<string, AigcModelTemplate>();
-  const body = await requestAigcJson<unknown>("open/models/configs", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ modelIds }),
-  });
-  const parsed = aigcEnvelopeSchema.extend({ data: z.record(z.string(), z.unknown()) }).safeParse(body);
-  if (!parsed.success || parsed.data.code !== 0) throw failure("AIGC 模型模板暂不可用", 502);
-  return new Map(Object.entries(parsed.data.data).flatMap(([modelId, config]) => {
-    const template = readModelTemplate(config);
-    return template && (!template.modelId || template.modelId === modelId) ? [[modelId, template] as const] : [];
-  }));
+  const templates = new Map<string, AigcModelTemplate>();
+  for (let index = 0; index < modelIds.length; index += templateBatchSize) {
+    const batch = modelIds.slice(index, index + templateBatchSize);
+    const body = await requestAigcJson<unknown>("open/models/configs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ modelIds: batch }),
+    });
+    const parsed = aigcEnvelopeSchema.extend({ data: z.record(z.string(), z.unknown()) }).safeParse(body);
+    if (!parsed.success || parsed.data.code !== 0) throw failure("AIGC 模型模板暂不可用", 502);
+    for (const [modelId, config] of Object.entries(parsed.data.data)) {
+      const template = readModelTemplate(config);
+      if (template && (!template.modelId || template.modelId === modelId)) templates.set(modelId, template);
+    }
+  }
+  return templates;
 }
 
 export async function listSuanliModels(identity?: SuanliIdentity) {
