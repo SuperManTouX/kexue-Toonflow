@@ -19,11 +19,20 @@
         </el-button>
       </template>
       <el-form class="modelOptions" labelPosition="top">
+        <el-form-item v-if="suanliAvailable" label="SXWZ 算力">
+          <div class="suanliAccount">
+            <span>{{ suanliStatusReady ? suanliUser?.name ?? "未登录" : "读取登录状态中" }}</span>
+            <el-button v-if="suanliUser" text size="small" :disabled="suanliLoading" @click="logout">退出</el-button>
+            <el-button v-else text size="small" @click="loginVisible = true">登录</el-button>
+            <el-button v-if="suanliUser" text size="small" :loading="suanliLoading" @click="refreshModels">刷新模型</el-button>
+          </div>
+          <span v-if="suanliError" class="suanliError">{{ suanliError }}</span>
+        </el-form-item>
         <el-form-item label="模型">
-          <el-select v-model="selectedModel" filterable :disabled="disabled" :teleported="false" placeholder="选择模型" aria-label="选择模型" noDataText="请先在设置中添加模型" @change="reasoningEffort = ''">
+          <el-select v-model="selectedModel" filterable :disabled="disabled" :teleported="false" placeholder="选择模型" aria-label="选择模型" noDataText="请先添加本地模型或登录 SXWZ 算力" @change="reasoningEffort = ''">
             <template #prefix><modelIcon v-if="selectedModelChoice" :model="selectedModelChoice.modelId" :size="18" /></template>
             <el-option-group v-for="provider in modelGroups" :key="provider.id" :label="provider.label">
-              <el-option v-for="model in provider.models" :key="model.id" :label="model.label" :value="JSON.stringify([provider.id, model.id])">
+              <el-option v-for="model in provider.models" :key="model.id" :label="model.label" :value="JSON.stringify([model.providerId ?? provider.id, model.id])">
                 <el-space :size="8">
                   <modelIcon :model="model.id" :size="16" />
                   <span>{{ model.label }}</span>
@@ -37,6 +46,7 @@
         </el-form-item>
       </el-form>
     </el-popover>
+    <suanliLoginDialog v-model:visible="loginVisible" />
   </div>
 </template>
 
@@ -44,25 +54,39 @@
 import { computed, ref, watch } from "vue";
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-vue";
 import { modelIcon } from "@toonflow/model-icons";
-import { customProviders, modelChoices } from "@/stores/settings";
+import { ElMessage } from "element-plus";
+import suanliLoginDialog from "@/components/suanliLoginDialog.vue";
+import { agentModelChoices, agentModelGroups, loadSuanliStatus, logoutSuanli, refreshSuanliModels, suanliAvailable, suanliError, suanliLoading, suanliStatusReady, suanliUser } from "@/stores/suanli";
 
 const selectedModel = defineModel<string>({ default: "" });
 const reasoningEffort = defineModel<string>("reasoningEffort", { default: "" });
 const props = withDefaults(defineProps<{ active?: boolean; disabled?: boolean }>(), { active: true, disabled: false });
 const visible = ref(false);
+const loginVisible = ref(false);
 const reasoningOptions = [
   { label: "默认", value: "" },
   { label: "低", value: "low" },
   { label: "中", value: "medium" },
   { label: "高", value: "high" },
 ];
-const modelGroups = computed(() => customProviders.value.toSorted((left, right) => Number(right.id === "tfRouter") - Number(left.id === "tfRouter")));
-const selectedModelChoice = computed(() => modelChoices.value.find(item => item.value === selectedModel.value));
+const modelGroups = agentModelGroups;
+const selectedModelChoice = computed(() => agentModelChoices.value.find(item => item.value === selectedModel.value));
 const reasoningLabel = computed(() => reasoningOptions.find(item => item.value === reasoningEffort.value)?.label ?? "默认");
-watch(modelChoices, items => {
+watch(agentModelChoices, items => {
   if (!selectedModel.value) selectedModel.value = items[0]?.value ?? "";
 }, { immediate: true });
 watch(() => !props.active || props.disabled, close => { if (close) visible.value = false; });
+watch(visible, open => { if (open && suanliAvailable) void loadSuanliStatus().catch(() => {}); });
+
+async function refreshModels() {
+  try { await refreshSuanliModels(); }
+  catch { /* 错误在账号区域展示。 */ }
+}
+
+async function logout() {
+  try { await logoutSuanli(); ElMessage.success("已退出 SXWZ 算力"); }
+  catch (error) { ElMessage.error(error instanceof Error ? error.message : "退出 SXWZ 算力失败"); }
+}
 </script>
 
 <style lang="scss">
@@ -104,6 +128,21 @@ watch(() => !props.active || props.disabled, close => { if (close) visible.value
 
 .agentModelPopover {
   .modelOptions {
+    .suanliAccount {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px;
+      min-height: 32px;
+    }
+
+    .suanliError {
+      display: block;
+      margin-top: 6px;
+      color: var(--el-color-danger);
+      font-size: 12px;
+    }
+
     .el-form-item {
       margin-bottom: 24px;
 

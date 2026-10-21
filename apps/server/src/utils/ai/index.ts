@@ -13,6 +13,9 @@ import { readFile, stat } from "@toonflow/file";
 import { resolveWorkspacePath } from "@/utils/workspace/files";
 import { getReadableFileMimeType } from "@/lib/documentFormats";
 import { readDocument } from "@/utils/documents";
+import { getSuanliModelByRef } from "@/utils/suanli/models";
+import { getSuanliRuntimeConfig } from "@/utils/suanli/client";
+import { getSuanliSession, getSuanliSessionRevision } from "@/utils/suanli/auth";
 
 export { fetchProviderModels } from "@/utils/ai/models";
 export { refreshProviderModels } from "@/utils/ai/initialize";
@@ -62,6 +65,30 @@ export function getConfiguredModel(providerId: string, modelId: string) {
   if (baseUrl.pathname === "/") baseUrl.pathname = "/v1";
   const limits = getModelLimits(providerId, model);
   return { provider, model: { ...model, contextWindow: limits.contextWindow, maxOutputTokens: limits.maxTokens }, baseUrl: baseUrl.href.replace(/\/+$/, "") };
+}
+
+export async function getAgentConfiguredModel(providerId: string, modelId: string) {
+  if (providerId !== "suanli") return getConfiguredModel(providerId, modelId);
+  const sessionRevision = getSuanliSessionRevision();
+  const session = getSuanliSession();
+  if (!session) throw Object.assign(new Error("请先登录 SXWZ 算力账号"), { status: 401 });
+  const suanliModel = await getSuanliModelByRef(modelId);
+  if (!(suanliModel.platformCode === "ai_chat" || suanliModel.platformCode === "ai_coding") || suanliModel.kind !== "llm") {
+    throw Object.assign(new Error("所选算力模型暂不支持文本 Agent"), { status: 400 });
+  }
+  const current = getSuanliSession();
+  if (sessionRevision !== getSuanliSessionRevision() || !current || current.token !== session.token || JSON.stringify(current.identity) !== JSON.stringify(session.identity)) {
+    throw Object.assign(new Error("SXWZ 登录状态已变化，请重新选择模型"), { status: 409 });
+  }
+  const runtime = getSuanliRuntimeConfig();
+  const limits = getModelLimits(providerId, { id: modelId, label: suanliModel.label });
+  const model = { id: modelId, label: suanliModel.label, contextWindow: limits.contextWindow, maxOutputTokens: limits.maxTokens };
+  return {
+    provider: { id: providerId, label: "SXWZ 算力", apiUrl: runtime.apiUrl, apiKey: runtime.apiKey, protocol: "openai-completions" as const, models: [model] },
+    model,
+    baseUrl: runtime.apiUrl,
+    suanliBinding: { model: suanliModel, identity: session.identity, token: session.token, sessionRevision },
+  };
 }
 
 export function listAiModels() {

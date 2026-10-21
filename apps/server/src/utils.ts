@@ -10,6 +10,7 @@ import * as ffmpeg from "@/utils/ffmpeg";
 import * as pluginInstall from "@/utils/plugins/install";
 import getConfig, { cleanNodeMenuSettings, isResourceEnabled, setResourceEnabled, removeLegacySettings } from "@/utils/conf";
 import * as auth from "@/utils/auth";
+import * as suanli from "@/utils/suanli";
 import * as ai from "@/utils/ai";
 import * as plugins from "@/utils/plugins/tools";
 import * as nodePlugins from "@/utils/plugins/nodes";
@@ -42,6 +43,7 @@ export default {
   pluginInstall,
   get conf() { return getConfig(); },
   auth,
+  suanli,
   isResourceEnabled,
   setResourceEnabled,
   cleanNodeMenuSettings,

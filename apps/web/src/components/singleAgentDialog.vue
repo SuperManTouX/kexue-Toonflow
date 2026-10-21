@@ -76,7 +76,7 @@ import modelPopover from "@/components/modelPopover.vue";
 import messageMarkdown from "@/components/messageMarkdown.vue";
 import toolMessage from "./agent/toolMessage.vue";
 import { createReplyStream, readAgentEvents } from "./agent/replyStream";
-import { modelChoices } from "@/stores/settings";
+import { agentModelChoices } from "@/stores/suanli";
 import { writeClipboardText } from "@/lib/clipboard";
 
 const props = withDefaults(defineProps<{
@@ -199,7 +199,7 @@ async function executeClientTool(event: Extract<SingleAgentEvent, { type: "clien
 async function send(content = draft.value) {
   const prompt = content.trim();
   if (busy.value || !visible.value || !prompt) return;
-  const model = modelChoices.value.find(item => item.value === selectedModel.value);
+  const model = agentModelChoices.value.find(item => item.value === selectedModel.value);
   if (!model) { reportError(new Error("请选择已配置的文本模型")); return; }
   busy.value = true;
   formError.value = "";

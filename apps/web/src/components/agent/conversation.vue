@@ -185,7 +185,7 @@ import { createPastedTextFile, readTextAttachment } from "./textAttachments";
 import useWorkspaceFiles from "@/lib/workspaceFiles";
 import { writeClipboardText } from "@/lib/clipboard";
 import anonymousData from "@/lib/anonymousData";
-import { modelChoices } from "@/stores/settings";
+import { agentModelChoices } from "@/stores/suanli";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { AgentAttachment, AgentConversation, AgentMessage } from "./types";
 import type { AgentEvent, AgentMention, AgentToolCall } from "@toonflow/server/agent/types";
@@ -343,7 +343,7 @@ const selectedModel = ref(pendingMessage?.model ?? (props.initialSession?.provid
   ? JSON.stringify([props.initialSession.providerId, props.initialSession.modelId]) : ""));
 const contextMenuVisible = ref(false);
 const reasoningEffort = ref(pendingMessage?.reasoningEffort ?? (props.initialSession?.thinkingLevel === "off" ? "" : props.initialSession?.thinkingLevel ?? ""));
-const selectedModelChoice = computed(() => modelChoices.value.find(item => item.value === selectedModel.value));
+const selectedModelChoice = computed(() => agentModelChoices.value.find(item => item.value === selectedModel.value));
 const contextWindow = computed(() => contextUsage.value?.contextWindow ?? selectedModelChoice.value?.contextWindow ?? 262144);
 const contextPercent = computed(() => (contextUsage.value?.tokens ?? 0) / contextWindow.value * 100);
 const inputTokens = computed(() => stats.value ? stats.value.tokens.input + stats.value.tokens.cacheRead + stats.value.tokens.cacheWrite : 0);

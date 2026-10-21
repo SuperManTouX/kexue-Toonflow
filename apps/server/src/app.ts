@@ -13,6 +13,7 @@ import initializePlugins from "@/utils/plugins/initialize";
 import { languageRequest, resolveRequestLocale, runWithLocale, setLocaleFallback, translateError, translateMessage } from "@/lib/i18n";
 import { detectLocale, normalizeLocale } from "@toonflow/i18n";
 import { initializeAuth } from "@/utils/auth";
+import { initializeSuanliSession } from "@/utils/suanli/auth";
 import { authRequest, internalAuthRequest } from "@/utils/auth/middleware";
 import { captureInternalRequestBody } from "@/utils/auth/internalRequest";
 import { canManageHost, getCurrentUser, getSharedDataDirectory } from "@/lib/userContext";
@@ -48,6 +49,7 @@ export async function createApp({
   // conf 由下方的路由动态加载，必须先确定整个进程共用的数据目录。
   if (dataDirectory) process.env.TOONFLOW_DATA_DIR = resolve(dataDirectory);
   await initializeAuth({ dataDirectory: dataDirectory ?? process.env.TOONFLOW_DATA_DIR ?? resolve(import.meta.dirname, "../../..", "data"), mode: authMode });
+  if (authMode === "local") await initializeSuanliSession(getSharedDataDirectory());
   const { default: getConfig } = await import("@/utils/conf");
   setLocaleFallback(() => (canManageHost() ? normalizeLocale((getConfig().get("settings", {}).ui as { language?: unknown } | undefined)?.language) : undefined)
     ?? detectLocale([Intl.DateTimeFormat().resolvedOptions().locale]));
@@ -91,6 +93,7 @@ export async function createApp({
   app.use(languageRequest);
   app.use(authRequest);
   app.use("/api/auth/login", express.json({ limit: "12kb", verify: captureInternalRequestBody }));
+  app.use("/api/suanli/auth/login", express.json({ limit: "12kb" }));
   app.use("/a2a", express.json({ limit: "2mb", verify: captureInternalRequestBody }));
   app.use(["/api/workspaces/files/write", "/api/assets/save"], express.raw({ type: "application/octet-stream", limit: "100mb", verify: captureInternalRequestBody }));
   app.use(express.json({ limit: "100mb", verify: captureInternalRequestBody }));

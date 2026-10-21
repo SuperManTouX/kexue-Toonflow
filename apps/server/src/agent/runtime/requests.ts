@@ -6,10 +6,17 @@ import { getAgentImageReference, getOffloadedImageText, readAgentImage, saveAgen
 import type { AgentImageReference } from "@/agent/runtime/imageAttachments";
 import { getRequestFiles, type RequestFile } from "@/utils/ai/requestFiles";
 import { createFileTransport, FileRequestLimitError } from "@/utils/ai/files";
+import { clearSuanliSession, getSuanliSession, getSuanliSessionRevision } from "@/utils/suanli/auth";
+import { clearSuanliModelCache } from "@/utils/suanli/models";
+import { getSuanliBindingForRuntime } from "@/agent/runtime/model";
 import getConfig from "@/utils/conf";
 
 function contentHash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function sameSuanliIdentity(left: { userId: string; sessionId: string; schoolId: string; collegeId?: string }, right: { userId: string; sessionId: string; schoolId: string; collegeId?: string }) {
+  return left.userId === right.userId && left.sessionId === right.sessionId && left.schoolId === right.schoolId && left.collegeId === right.collegeId;
 }
 
 function redactUrl(value: string) {
@@ -54,8 +61,9 @@ async function logUpstreamFailure(
   request: ReturnType<typeof getRequestInfo>,
   response?: Response,
   error?: unknown,
+  includeResponseBody = true,
 ) {
-  const body = response ? safeErrorMessage(await response.clone().text().catch(cause => `[响应体读取失败: ${cause instanceof Error ? cause.message : String(cause)}]`)) : undefined;
+  const body = response && includeResponseBody ? safeErrorMessage(await response.clone().text().catch(cause => `[响应体读取失败: ${cause instanceof Error ? cause.message : String(cause)}]`)) : undefined;
   console.error("Agent 上游请求失败", {
     request,
     response: response ? {
@@ -103,10 +111,23 @@ export function configureAgentRequests(session: AgentSession, limits?: { maxRequ
       let partial: AssistantMessage | undefined;
       try {
         if (toolFailure) { const { error } = toolFailure; toolFailure = undefined; throw error; }
+        const suanliBinding = model.provider === "suanli" ? getSuanliBindingForRuntime(session.modelRuntime) : undefined;
+        const clientTaskId = model.provider === "suanli" ? randomUUID() : undefined;
+        const assertSuanliBinding = () => {
+          const current = getSuanliSession();
+          if (!suanliBinding || !current || getSuanliSessionRevision() !== suanliBinding.sessionRevision || current.token !== suanliBinding.token
+            || !sameSuanliIdentity(current.identity, suanliBinding.identity) || model.id !== suanliBinding.model.modelRef) {
+            throw Object.assign(new Error("SXWZ 登录状态或算力模型已变化，请重新选择模型"), { status: 409 });
+          }
+        };
+        if (model.provider === "suanli") assertSuanliBinding();
         const providers = getConfig().get("settings", {}).customProviders;
         const provider = Array.isArray(providers) ? providers.find(item => item?.id === model.provider) : undefined;
         const auth = await session.modelRuntime.getAuth(model, { apiKey: options?.apiKey, env: options?.env, signal: options?.signal });
         const apiKey = options?.apiKey ?? auth?.auth.apiKey;
+        if (model.provider === "suanli" && apiKey !== suanliBinding?.token) {
+          throw Object.assign(new Error("SXWZ 算力凭据已变化，请重新登录"), { status: 409 });
+        }
         const files = createFileTransport({
           apiUrl: auth?.auth.baseUrl ?? model.baseUrl,
           apiKey: apiKey ?? "",
@@ -239,8 +260,28 @@ export function configureAgentRequests(session: AgentSession, limits?: { maxRequ
             apiKey,
             onPayload: async (payload, requestModel) => {
               try {
-                const body = await options?.onPayload?.(payload, requestModel) ?? payload;
+                let body = await options?.onPayload?.(payload, requestModel) ?? payload;
+                if (requestModel.provider === "suanli") {
+                  assertSuanliBinding();
+                  if (!suanliBinding || !clientTaskId || requestModel.id !== suanliBinding.model.modelRef) {
+                    throw Object.assign(new Error("算力模型请求信息不完整，请重新选择模型"), { status: 409 });
+                  }
+                  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Agent 请求格式无效");
+                  const messagesAndTools = { ...(body as Record<string, unknown>) };
+                  delete messagesAndTools.model;
+                  body = {
+                    ...messagesAndTools,
+                    model_id: suanliBinding.model.modelId,
+                    platform_code: suanliBinding.model.platformCode,
+                    client_task_id: clientTaskId,
+                    sessionId: suanliBinding.identity.sessionId,
+                    user_id: suanliBinding.identity.userId,
+                    school_id: suanliBinding.identity.schoolId,
+                    ...(suanliBinding.identity.collegeId ? { college_id: suanliBinding.identity.collegeId } : {}),
+                  };
+                }
                 const images = getRequestFiles(body).filter(file => file.mimeType.toLowerCase().startsWith("image/"));
+                if (requestModel.provider === "suanli" && images.length) throw new Error("SXWZ 文本 Agent 暂不支持图片输入");
                 const imageCursors = new Map<string, number>();
                 activeImages = [];
                 for (const image of images) {
@@ -306,12 +347,16 @@ export function configureAgentRequests(session: AgentSession, limits?: { maxRequ
               const requestInfo = getRequestInfo(input, init);
               let response: Response;
               try {
+                if (model.provider === "suanli") assertSuanliBinding();
                 response = await request(input, init);
               } catch (error) {
                 await logUpstreamFailure(requestInfo, undefined, error);
                 throw error;
               }
-              if (!response.ok) await logUpstreamFailure(requestInfo, response);
+              if (!response.ok) await logUpstreamFailure(requestInfo, response, undefined, model.provider !== "suanli");
+              if (model.provider === "suanli" && response.status === 401 && suanliBinding) {
+                if (await clearSuanliSession(suanliBinding.sessionRevision)) clearSuanliModelCache();
+              }
               if (response.status !== 413) return response;
               http413 = true;
               const headers = new Headers(response.headers);
