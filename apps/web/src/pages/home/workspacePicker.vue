@@ -66,9 +66,13 @@ async function chooseDirectory(): Promise<string | null> {
   selecting.value = true;
   try {
     if (isDesktop && !isRemoteConnection) {
-      const { data } = await axios.post<{ data: { directory: string | null } }>("/api/desktop/selectDirectory", null, { headers: { "x-toonflow-desktop": "1" } });
-      if (data.data.directory) selectedDirectory.value = data.data.directory;
-      return data.data.directory;
+      try {
+        const { data } = await axios.post<{ data: { directory: string | null } }>("/api/desktop/selectDirectory", null, { headers: { "x-toonflow-desktop": "1" } });
+        if (data.data.directory) selectedDirectory.value = data.data.directory;
+        return data.data.directory;
+      } catch {
+        // ACT: 浏览器联调页没有桌面原生桥接时，回退到服务端工作区目录浏览器。
+      }
     }
     const { data } = await axios.post<{ code: number; data: { native: boolean; directory: string | null } }>("/api/workspaces/selectDirectory", null, { headers: { "x-toonflow-workspace": "1" } });
     if (data.data.native) {
