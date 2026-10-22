@@ -15,6 +15,10 @@ const sharedFields = {
   prompt: z.string().trim().min(1).max(100000),
   outputDirectory: relativePath.optional(),
   images: z.array(imageReference).max(64).optional(),
+  suanliValues: z.strictObject({
+    modelRef: z.string().trim().min(1).max(256),
+    values: z.record(z.string().min(1).max(128), z.json()).refine(value => Object.keys(value).length <= 100),
+  }).optional(),
   ratio: z.string().regex(/^[1-9]\d{0,3}:[1-9]\d{0,3}$/).optional(),
 };
 const referenceMode = z.templateLiteral([z.enum(["image", "video", "audio"]), "Reference:", z.number()])
@@ -45,6 +49,7 @@ export const audioGenerationSchema = z.strictObject({
   prompt: sharedFields.prompt,
   outputDirectory: sharedFields.outputDirectory,
   images: sharedFields.images,
+  suanliValues: sharedFields.suanliValues,
   audios: z.array(audioReference).max(64).optional(),
   voice: z.string().trim().min(1).max(256).optional(),
   speed: z.number().finite().positive().optional(),

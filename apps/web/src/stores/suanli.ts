@@ -3,6 +3,7 @@ import type { SuanliModel } from "@toonflow/server/suanli/types";
 import { appFetch } from "@/lib/auth";
 import { isDesktop, isRemoteConnection } from "@/lib/platform";
 import { customProviders, modelChoices } from "@/stores/settings";
+import { invalidateNodeModels } from "@toonflow/nodes-scaffold/nodeAi";
 
 type SuanliUser = { id: string; name: string };
 type SuanliCaptcha = { captchaId: string; captchaImage: string };
@@ -21,6 +22,11 @@ export const suanliError = ref("");
 let statusRequest: Promise<void> | undefined;
 let modelRequest: Promise<SuanliModel[]> | undefined;
 let catalogRevision = 0;
+
+function refreshMediaModelCatalog() {
+  invalidateNodeModels("media");
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("toonflow:provider-config-changed"));
+}
 
 async function readApiResponse<T>(path: string, init?: RequestInit) {
   const response = await appFetch(path, init);
@@ -83,6 +89,7 @@ export async function refreshSuanliModels() {
           suanliLoading.value = false;
           suanliUser.value = null;
           suanliModels.value = [];
+          refreshMediaModelCatalog();
         }
       }
       throw error;
@@ -142,6 +149,7 @@ export async function loginSuanli(username: string, password: string, captchaId:
   suanliUser.value = result.user;
   suanliStatusReady.value = true;
   suanliModels.value = [];
+  refreshMediaModelCatalog();
   await refreshSuanliModels().catch(() => {});
   return result.user;
 }
@@ -154,6 +162,7 @@ export async function logoutSuanli() {
   suanliLoading.value = false;
   suanliUser.value = null;
   suanliModels.value = [];
+  refreshMediaModelCatalog();
   suanliError.value = "";
   suanliStatusReady.value = true;
 }

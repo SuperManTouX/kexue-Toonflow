@@ -15,6 +15,7 @@ export default Router().post("/", validateFields({
     res.status(400).json(error("参数错误", parsed.error.issues.map(issue => ({ ...issue, message: translateMessage(issue.message) })), 400));
     return;
   }
+  if (parsed.data.providerId === "suanli") u.suanli.assertSuanliDesktopRequest(req);
   const cwd = await u.workspace.resolveWorkspace(req, directory);
   const controller = new AbortController();
   let heartbeat: ReturnType<typeof setInterval> | undefined;

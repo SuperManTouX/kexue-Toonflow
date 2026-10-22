@@ -272,7 +272,7 @@ export function configureAgentRequests(session: AgentSession, limits?: { maxRequ
                   body = {
                     ...messagesAndTools,
                     model_id: suanliBinding.model.modelId,
-                    platform_code: suanliBinding.model.platformCode,
+                    platform_code: "toonflow",
                     client_task_id: clientTaskId,
                     sessionId: suanliBinding.identity.sessionId,
                     user_id: suanliBinding.identity.userId,

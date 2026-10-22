@@ -1,4 +1,5 @@
 import { clearSuanliSession, getSuanliSession, getSuanliSessionRevision, getSxwzBaseUrl } from "./auth";
+import { recordSuanliFailure } from "./log";
 
 const requestTimeout = 15000;
 const maxResponseBytes = 10 * 1024 * 1024;
@@ -11,9 +12,12 @@ function suanliApiBase() {
   return `${getSxwzBaseUrl()}/suanli/v1`;
 }
 
-async function readJson(response: Response) {
+async function readJson(response: Response, logFailure: (reason: string, status: number, upstreamStatus: number, errorName?: string) => Promise<void>) {
   const reader = response.body?.getReader();
-  if (!reader) throw failure("算力中台响应为空", 502);
+  if (!reader) {
+    await logFailure("empty_response", 502, response.status);
+    throw failure("算力中台响应为空", 502);
+  }
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
@@ -22,7 +26,7 @@ async function readJson(response: Response) {
       if (done) break;
       size += value.byteLength;
       if (size > maxResponseBytes) {
-        await reader.cancel();
+        await reader.cancel().catch(() => {});
         throw failure("算力中台响应超过大小限制", 502);
       }
       chunks.push(value);
@@ -35,9 +39,15 @@ async function readJson(response: Response) {
     }
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)) as unknown;
   } catch (error) {
-    if (error instanceof Error && "status" in error) throw error;
-    if (error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name)) throw failure("算力中台响应读取超时", 504);
-    throw failure("算力中台返回的 JSON 格式无效", 502);
+    const mapped = error instanceof Error && "status" in error ? error
+      : error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name) ? failure("算力中台响应读取超时", 504)
+        : error instanceof SyntaxError ? failure("算力中台返回的 JSON 格式无效", 502)
+          : failure("算力中台响应读取失败", 502);
+    const reason = mapped.message === "算力中台响应读取超时" ? "response_timeout"
+      : mapped.message === "算力中台响应超过大小限制" ? "response_too_large"
+        : mapped.message === "算力中台返回的 JSON 格式无效" ? "invalid_json" : "response_read_failed";
+    await logFailure(reason, (mapped as Error & { status?: number }).status ?? 502, response.status, error instanceof Error ? error.name : undefined);
+    throw mapped;
   } finally {
     reader.releaseLock();
   }
@@ -51,6 +61,12 @@ export async function requestSuanliJson<T>(path: string, init: RequestInit = {},
     throw failure("SXWZ 登录状态已变化，请重新读取模型目录", 409);
   }
   let response: Response;
+  const startedAt = Date.now();
+  const method = init.method ?? "GET";
+  const logFailure = (phase: "request" | "response" | "body", reason: string, status: number, upstreamStatus?: number, errorName?: string) =>
+    init.signal?.aborted ? Promise.resolve() : recordSuanliFailure({
+      path, method, phase, reason, status, upstreamStatus, errorName, durationMs: Date.now() - startedAt,
+    });
   try {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
@@ -60,17 +76,20 @@ export async function requestSuanliJson<T>(path: string, init: RequestInit = {},
   } catch (error) {
     init.signal?.throwIfAborted();
     const timeout = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name);
-    throw failure(timeout ? "算力中台请求超时" : "算力中台暂不可用", timeout ? 504 : 502);
+    const status = timeout ? 504 : 502;
+    await logFailure("request", timeout ? "request_timeout" : "request_failed", status, undefined, error instanceof Error ? error.name : undefined);
+    throw failure(timeout ? "算力中台请求超时" : "算力中台暂不可用", status);
   }
   if (!response.ok) {
-    await response.body?.cancel();
-    if (response.status === 401) await clearSuanliSession(sessionRevision);
+    await response.body?.cancel().catch(() => {});
     const status = response.status === 401 ? 401 : response.status === 403 ? 403 : 502;
+    await logFailure("response", "upstream_http_error", status, response.status);
+    if (response.status === 401) await clearSuanliSession(sessionRevision);
     const message = response.status === 401 ? "SXWZ 登录凭据已失效，请重新登录"
       : response.status === 403 ? "当前 SXWZ 账号或应用无权访问算力接口" : `算力中台请求失败（HTTP ${response.status}）`;
-    throw failure(message, status);
+    throw Object.assign(failure(message, status), { upstreamStatus: response.status });
   }
-  return await readJson(response) as T;
+  return await readJson(response, (reason, status, upstreamStatus, errorName) => logFailure("body", reason, status, upstreamStatus, errorName)) as T;
 }
 
 export function getSuanliRuntimeConfig() {

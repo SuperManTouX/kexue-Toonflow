@@ -23,7 +23,14 @@
       <div v-if="actions?.mode === 'speed'" ref="speedTarget" />
       <el-card v-else class="promptCard" shadow="never" :bodyStyle="{ padding: '14px 16px 12px' }">
         <referenceItem v-if="refList.length" v-model="refList" @preview="setReferencePreview" @remove="removeReference" />
-        <promptInput v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" placeholder="描述您想要的音频效果或输入待朗读文本" expandable />
+        <suanliParamsForm
+          v-if="selectedModel?.providerId === 'suanli'"
+          ref="suanliForm"
+          v-model="data.suanliValues"
+          :modelRef="selectedModel.modelId"
+          :referenceText="suanliReferenceText"
+          :disabled="busy" />
+        <promptInput v-else v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" placeholder="描述您想要的音频效果或输入待朗读文本" expandable />
         <div class="promptFooter">
           <el-select
             v-model="data.model"
@@ -41,14 +48,14 @@
               <el-option v-for="item in provider.models" :key="item.modelId" :label="item.label" :value="JSON.stringify([item.providerId, item.modelId])" />
             </el-option-group>
           </el-select>
-          <generationSettings v-model:language="data.language" v-model:sampleRate="data.sampleRate" v-model:format="data.format" :disabled="busy || !selectedModel" />
+          <generationSettings v-if="selectedModel?.providerId !== 'suanli'" v-model:language="data.language" v-model:sampleRate="data.sampleRate" v-model:format="data.format" :disabled="busy || !selectedModel" />
           <div class="generationActions">
-            <mediaPrice v-if="generationInput" :input="{ ...generationInput, mediaType: 'audio' }" :supported="selectedModel?.supportsPrice === true" />
+            <mediaPrice v-if="generationInput && selectedModel?.providerId !== 'suanli'" :input="{ ...generationInput, mediaType: 'audio' }" :supported="selectedModel?.supportsPrice === true" />
             <el-button
               class="sendButton"
               :icon="generating ? IconPlayerStop : IconArrowUp"
-              :disabled="deleting || uploading || actions?.processing || (!generating && (!generationPrompt || !selectedModel))"
-              :title="generating ? '停止生成' : '生成音频'"
+              :disabled="deleting || uploading || actions?.processing || (!generating && (!selectedModel || selectedModel.providerId === 'suanli' && !suanliReady || selectedModel.providerId !== 'suanli' && !generationPrompt))"
+              :title="generating ? '停止生成' : selectedModel?.providerId === 'suanli' && !suanliReady ? '模型参数未就绪或不支持当前引用' : '生成音频'"
               :aria-label="generating ? '停止生成' : '生成音频'"
               @click="generating ? generationController?.abort() : startGeneration().catch(error => showNodeError(error, '音频生成失败'))" />
           </div>
@@ -65,12 +72,14 @@ import { ElButton, ElCard, ElLoading, ElOption, ElOptionGroup, ElSelect } from "
 import { IconArrowUp, IconGauge, IconMusicBolt, IconPlayerStop, IconScissors, IconTransfer } from "@tabler/icons-vue";
 import { getTargetValues, isTypeCompatible, nodeSkeleton, nodeTools, useNode, z, type NodeAudioRequest, type NodeHandle, type NodeInputValue, type NodeMediaModel } from "@toonflow/nodes-scaffold/runtime";
 import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
+import { supportsSuanliImageReferences } from "@toonflow/node-shared/mediaCapability";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
 import { useNodeGeneration } from "@toonflow/node-shared/useNodeGeneration";
 import { useNodeReferences } from "@toonflow/node-shared/useNodeReferences";
 import audioPlayer from "@toonflow/node-audio/audioPlayer";
 import audioActions from "@toonflow/node-audio/audioActions";
 import promptInput from "@toonflow/node-shared/promptInput";
+import suanliParamsForm from "@toonflow/node-shared/suanliParamsForm";
 import referenceItem from "@toonflow/node-shared/referenceItem";
 import mediaPrice from "@toonflow/node-shared/mediaPrice";
 import generationSettings from "./components/generationSettings.vue";
@@ -87,7 +96,7 @@ defineOptions({
 const vLoading = ElLoading.directive;
 const { id, node, nodeProps, nodeEvent, outputs, files, ai, updateNodeInternals } = useNode({ label: "音频生成" });
 type PromptModel = NonNullable<InstanceType<typeof promptInput>["$props"]["modelValue"]>;
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; model: string; language: string; sampleRate: number; format: string });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; model: string; language: string; sampleRate: number; format: string; suanliValues?: { modelRef: string; values: Record<string, unknown> } });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.model ??= "";
@@ -113,6 +122,21 @@ const { generating } = generationState;
 const busy = computed(() => generating.value || uploading.value || deleting.value || !!actions.value?.processing);
 watch(busy, value => { if (!value && modelsRefreshPending) void refreshProviderModels(); });
 const selectedModel = computed(() => models.value.find(item => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
+const suanliForm = ref<InstanceType<typeof suanliParamsForm>>();
+const imageReferenceCount = computed(() => refList.value.filter(item => item.dataType === "IMAGE").length);
+const hasAudioReferences = computed(() => refList.value.some(item => item.dataType === "AUDIO"));
+const suanliReferencesSupported = computed(() => {
+  const template = suanliForm.value?.template;
+  const modelRef = selectedModel.value?.modelId;
+  const suanliValues = data.value.suanliValues;
+  const values = modelRef && suanliValues?.modelRef === modelRef ? suanliValues.values : {};
+  return !!modelRef && !!template && supportsSuanliImageReferences(modelRef, template, imageReferenceCount.value, values);
+});
+const suanliReady = computed(() => selectedModel.value?.providerId === "suanli"
+  && suanliForm.value?.template?.canGenerate === true
+  && !hasAudioReferences.value && suanliReferencesSupported.value);
+const suanliReferenceText = computed(() => refList.value.flatMap((item, index) =>
+  item.dataType === "STRING" && item.value?.trim() ? [`参考 ${index + 1}：\n${item.value.trim()}`] : []).join("\n\n"));
 const modelGroups = computed(() => groupNodeModels(models.value));
 const generationPrompt = computed(() => [data.value.prompt.trim(), ...refList.value.flatMap((item, index) =>
   item.dataType === "STRING" && item.value?.trim() ? [`参考 ${index + 1}：\n${item.value.trim()}`] : [])].filter(Boolean).join("\n\n"));
@@ -195,9 +219,16 @@ function loadModels() {
 
 async function startGeneration() {
   if (busy.value || disposed) throw new Error("音频正在处理或节点已关闭，请稍后重试");
-  const input = generationInput.value;
+  let input = generationInput.value;
   if (!input) throw new Error("请先选择音频模型");
-  if (!generationPrompt.value) throw new Error("请输入生成提示词或待朗读文本");
+  const choice = selectedModel.value;
+  if (!choice) throw new Error("请先选择音频模型");
+  if (choice.providerId === "suanli") {
+    if (!suanliReady.value) throw new Error("当前算力模型不支持音频引用，或没有可用的图片上传参数");
+    const values = suanliForm.value?.getValues();
+    if (!values || typeof values.prompt !== "string" || !values.prompt.trim()) throw new Error("请输入生成提示词");
+    input = { ...input, prompt: values.prompt, suanliValues: { modelRef: choice.modelId, values } };
+  } else if (!generationPrompt.value) throw new Error("请输入生成提示词或待朗读文本");
   if (!referencesAllowed(refList.value)) throw new Error("图片和音频不能同时引用，且合计最多引用一个；文本数量不限");
   if (refList.value.some(item => item.value === undefined)) throw new Error("引用节点暂无内容，请先补充引用内容");
   if (!languageOptions.some(item => item.value === data.value.language) || !sampleRateOptions.includes(data.value.sampleRate) || !formatOptions.includes(data.value.format)) throw new Error("请重新选择有效的语种、采样率和输出格式");

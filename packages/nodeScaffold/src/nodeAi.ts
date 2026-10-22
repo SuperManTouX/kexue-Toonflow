@@ -3,7 +3,7 @@ import { onScopeDispose } from "vue";
 import { runAgentLoop, type AgentTool, type AgentToolResult } from "@earendil-works/pi-agent-core";
 import { createAssistantMessageEventStream, type AssistantMessage, type Context, type Message, type Model } from "@earendil-works/pi-ai";
 import { EventSourceParserStream } from "eventsource-parser/stream";
-import type { MediaGenerationRequest, MediaModel } from "@toonflow/tools-scaffold/runtime";
+import type { MediaGenerationRequest, MediaModel, SuanliMediaParam, SuanliMediaTemplate } from "@toonflow/tools-scaffold/runtime";
 import type { NodeOutput } from "./values";
 
 export type NodeAiModel = {
@@ -18,6 +18,7 @@ export type NodeAiModel = {
 export type NodeMediaModel = Omit<MediaModel, "mode"> & {
   mode?: (string | string[])[];
 };
+export type { SuanliMediaParam, SuanliMediaTemplate };
 export type NodeImageRequest = {
   directory: string;
   providerId: string;
@@ -27,13 +28,14 @@ export type NodeImageRequest = {
   images?: { path: string; mimeType: string }[];
   ratio?: string;
   size?: string;
+  suanliValues?: MediaGenerationRequest["suanliValues"];
 };
 export type NodeImageResult = { path: string; mimeType: string; mediaType: "image" };
 export type NodeVideoRequest = Omit<MediaGenerationRequest, "size"> & { directory: string; outputDirectory: string };
 export type NodeVideoResult = { path: string; mimeType: string; mediaType: "video" };
 export type NodeMediaPriceRequest = (NodeImageRequest & { mediaType: "image" }) | (NodeVideoRequest & { mediaType: "video" }) | (NodeAudioRequest & { mediaType: "audio" });
 export type NodeMediaPrice = { price: string; tips: string };
-export type NodeAudioRequest = Pick<MediaGenerationRequest, "providerId" | "modelId" | "prompt" | "images" | "audios" | "voice" | "speed" | "volume" | "pitch" | "language" | "format" | "sampleRate"> & { directory: string; outputDirectory: string };
+export type NodeAudioRequest = Pick<MediaGenerationRequest, "providerId" | "modelId" | "prompt" | "images" | "audios" | "voice" | "speed" | "volume" | "pitch" | "language" | "format" | "sampleRate" | "suanliValues"> & { directory: string; outputDirectory: string };
 export type NodeAudioResult = { path: string; mimeType: string; mediaType: "audio" };
 export type NodeAiRequest = {
   providerId: string;
@@ -181,6 +183,12 @@ export function useNodeAi() {
     return readModels<NodeMediaModel>("/api/ai/media/models", requestSignal(signal));
   }
 
+  async function getSuanliMediaTemplate(modelRef: string, signal?: AbortSignal) {
+    const query = new URLSearchParams({ modelRef });
+    const response = await hostRequest(`/api/ai/media/template?${query}`, { cache: "no-store", signal: requestSignal(signal) });
+    return readResult<SuanliMediaTemplate>(response);
+  }
+
   async function getMediaPrice(input: NodeMediaPriceRequest, signal?: AbortSignal): Promise<NodeMediaPrice | null> {
     const waitingSignal = requestSignal(signal);
     waitingSignal.throwIfAborted();
@@ -319,5 +327,5 @@ export function useNodeAi() {
     return { text, ...(reasoning ? { reasoning } : {}) };
   }
 
-  return { getModels, getMediaModels, getMediaPrice, generateImage, generateVideo, generateAudio, generate };
+  return { getModels, getMediaModels, getSuanliMediaTemplate, getMediaPrice, generateImage, generateVideo, generateAudio, generate };
 }

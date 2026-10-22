@@ -78,6 +78,7 @@ export interface MediaModel {
   modelId: string;
   label: string;
   type: "image" | "video" | "audio";
+  tags?: string[];
   mode?: unknown;
   imageSizes?: string[];
   imageRatios?: string[];
@@ -86,9 +87,41 @@ export interface MediaModel {
   voices?: { title: string; voice: string }[];
 }
 
+type SuanliMediaParamBase = {
+  name: string;
+  label: string;
+  required?: boolean;
+  showWhen?: Record<string, string | number | boolean>;
+};
+
+export type SuanliMediaParam =
+  | (SuanliMediaParamBase & { ui: "textarea"; default?: string; maxLength?: number })
+  | (SuanliMediaParamBase & { ui: "number"; default?: number; min?: number; max?: number })
+  | (SuanliMediaParamBase & { ui: "proportion" | "resolution" | "select"; default?: string | number; options: (string | number)[] })
+  | (SuanliMediaParamBase & { ui: "quantity"; default?: number; options: number[] })
+  | (SuanliMediaParamBase & { ui: "dimension"; default?: string; dimension: { width?: { min?: number; max?: number }; height?: { min?: number; max?: number }; separator: string } })
+  | (SuanliMediaParamBase & { ui: "switch"; default?: boolean })
+  | (SuanliMediaParamBase & { ui: "hidden"; default?: unknown })
+  | (SuanliMediaParamBase & { ui: "imageUpload"; default?: string[]; maxCount: number; maxSizeMB?: number });
+
+export interface SuanliMediaTemplate {
+  modelId: string;
+  platformId: string;
+  inputType: string;
+  maxImages: number;
+  promptPlaceholder?: string;
+  params: SuanliMediaParam[];
+  canGenerate: boolean;
+}
+
 export interface MediaReference {
   path: string;
   mimeType: string;
+}
+
+export interface SuanliMediaValues {
+  modelRef: string;
+  values: Record<string, unknown>;
 }
 
 export interface MediaGenerationRequest {
@@ -113,6 +146,7 @@ export interface MediaGenerationRequest {
   language?: string;
   format?: string;
   sampleRate?: number;
+  suanliValues?: SuanliMediaValues;
   mode?: "singleImage" | "startEndRequired" | "endFrameOptional" | "startFrameOptional" | "text"
     | (`${"image" | "video" | "audio"}Reference:${number}`)[];
 }

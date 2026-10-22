@@ -50,7 +50,14 @@
         <div v-if="frameMode" class="referenceHint">
           {{ selectedMode === "startFrameOptional" ? "仅一张图片时作为尾帧；两张图片按顺序作为首帧、尾帧" : "图片引用按顺序作为首帧、尾帧" }}
         </div>
-        <promptInput v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" expandable />
+        <suanliParamsForm
+          v-if="selectedModel?.providerId === 'suanli'"
+          ref="suanliForm"
+          v-model="data.suanliValues"
+          :modelRef="selectedModel.modelId"
+          :referenceText="suanliReferenceText"
+          :disabled="generating || deleting" />
+        <promptInput v-else v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" expandable />
         <div class="promptFooter">
           <el-select
             v-model="data.model"
@@ -73,6 +80,7 @@
             </el-option-group>
           </el-select>
           <generationSettings
+            v-if="selectedModel?.providerId !== 'suanli'"
             v-model:duration="data.duration"
             v-model:resolution="data.resolution"
             v-model:ratio="data.ratio"
@@ -82,12 +90,12 @@
             :model="selectedModel"
             :disabled="generating || deleting || !selectedModel" />
           <div class="generationActions">
-            <mediaPrice v-if="generationInput" :input="{ ...generationInput, mediaType: 'video' }" :supported="selectedModel?.supportsPrice === true" />
+            <mediaPrice v-if="generationInput && selectedModel?.providerId !== 'suanli'" :input="{ ...generationInput, mediaType: 'video' }" :supported="selectedModel?.supportsPrice === true" />
             <el-button
               class="sendButton"
               :icon="generating ? IconPlayerStop : IconArrowUp"
-              :disabled="deleting || uploading || (!generating && (!generationPrompt || !selectedModel))"
-              :title="generating ? '停止生成' : '生成视频'"
+              :disabled="deleting || uploading || (!generating && (!selectedModel || selectedModel.providerId === 'suanli' && !suanliReady || selectedModel.providerId !== 'suanli' && !generationPrompt))"
+              :title="generating ? '停止生成' : selectedModel?.providerId === 'suanli' && !suanliReady ? '模型参数未就绪或不支持当前引用' : '生成视频'"
               :aria-label="generating ? '停止生成' : '生成视频'"
               @click="generating ? generationController?.abort() : startGeneration().catch((error) => showNodeError(error, '视频生成失败'))" />
           </div>
@@ -104,10 +112,12 @@ import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElDropd
 import { IconCameraAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconMusic, IconLayersSubtract, IconScissors, IconPhotoScan, IconPlayerSkipBack, IconPlayerSkipForward } from "@tabler/icons-vue";
 import { nodeSkeleton, nodeTools, useNode, z, type NodeMediaModel, type NodeVideoRequest, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
 import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
+import { supportsMediaCapability, supportsSuanliImageReferences } from "@toonflow/node-shared/mediaCapability";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
 import { useNodeGeneration } from "@toonflow/node-shared/useNodeGeneration";
 import { useNodeReferences } from "@toonflow/node-shared/useNodeReferences";
 import promptInput from "@toonflow/node-shared/promptInput";
+import suanliParamsForm from "@toonflow/node-shared/suanliParamsForm";
 import videoPlayer from "@toonflow/node-video/videoPlayer";
 import videoActions from "@toonflow/node-video/videoActions";
 import referenceItem from "@toonflow/node-shared/referenceItem";
@@ -128,7 +138,7 @@ const { id, node, nodeProps, nodeEvent, outputs, files, ai, updateNodeInternals 
   label: "视频生成",
 });
 type PromptModel = NonNullable<InstanceType<typeof promptInput>["$props"]["modelValue"]>;
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean; suanliValues?: { modelRef: string; values: Record<string, unknown> } });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.model ??= "";
@@ -153,7 +163,16 @@ let generation: Promise<void> | undefined;
 let modelsRequest: Promise<void> | undefined;
 // ACT: 供应商未声明视频比例范围，沿用界面的通用比例，具体支持范围由供应商校验。
 const ratioOptions = ["16:9", "9:16", "1:1", "4:3", "3:4"];
-const selectedModel = computed(() => models.value.find((item) => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
+const suanliForm = ref<InstanceType<typeof suanliParamsForm>>();
+const suanliReferencesSupported = computed(() => {
+  const template = suanliForm.value?.template;
+  const modelRef = selectedModel.value?.modelId;
+  const suanliValues = data.value.suanliValues;
+  const values = modelRef && suanliValues?.modelRef === modelRef ? suanliValues.values : {};
+  return !!modelRef && !!template && supportsSuanliImageReferences(modelRef, template, mediaCounts.value.image, values);
+});
+const suanliReferenceText = computed(() => refList.value.flatMap((item, index) =>
+  item.dataType === "STRING" && item.value?.trim() ? [`参考 ${index + 1}：\n${item.value.trim()}`] : []).join("\n\n"));
 const selectedMode = computed(() => selectedModel.value?.mode?.find((item) => JSON.stringify(item) === data.value.mode) as NodeVideoRequest["mode"]);
 const frameMode = computed(() => ["startEndRequired", "endFrameOptional", "startFrameOptional"].includes(String(selectedMode.value)));
 const mediaCounts = computed(() => ({
@@ -161,6 +180,15 @@ const mediaCounts = computed(() => ({
   video: refList.value.filter((item) => item.dataType === "VIDEO").length,
   audio: refList.value.filter((item) => item.dataType === "AUDIO").length,
 }));
+const videoCapability = computed(() => mediaCounts.value.image === 2
+  ? "firstLastFrame"
+  : mediaCounts.value.image ? "imageToVideo" : "textToVideo");
+const availableModels = computed(() => models.value.filter(item => supportsMediaCapability(item, videoCapability.value)));
+const selectedModel = computed(() => availableModels.value.find((item) => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
+const suanliReady = computed(() => selectedModel.value?.providerId === "suanli"
+  && suanliForm.value?.template?.canGenerate === true
+  && mediaCounts.value.video === 0 && mediaCounts.value.audio === 0
+  && suanliReferencesSupported.value);
 const matchingModes = computed(() => getMatchingModes(selectedModel.value));
 
 function getMatchingModes(choice?: NodeMediaModel) {
@@ -205,7 +233,12 @@ watch([selectedModel, () => data.value.duration], ([choice]) => {
   if (!ratioOptions.includes(data.value.ratio)) data.value.ratio = "9:16";
   if (choice.audio !== "optional") data.value.generateAudio = choice.audio === true;
 }, { flush: "sync" });
-const modelGroups = computed(() => groupNodeModels(models.value));
+const modelGroups = computed(() => groupNodeModels(availableModels.value));
+watch([availableModels, () => data.value.model], ([choices, model]) => {
+  if (!models.value.length || choices.some(item => JSON.stringify([item.providerId, item.modelId]) === model)) return;
+  const first = choices[0];
+  if (first) data.value.model = JSON.stringify([first.providerId, first.modelId]);
+}, { flush: "sync" });
 const generationPrompt = computed(() =>
   [
     data.value.prompt.trim(),
@@ -293,11 +326,6 @@ function loadModels() {
   modelsRequest = ai.getMediaModels().then((items) => {
     if (disposed || generating.value || deleting.value) return;
     models.value = items.filter((item) => item.type === "video");
-    // ACT: 只给空配置选默认模型，保留暂时不可用的旧选择及其参数。
-    if (!data.value.model) {
-      const first = models.value[0];
-      data.value.model = first ? JSON.stringify([first.providerId, first.modelId]) : "";
-    }
   }).finally(() => {
     modelsLoading.value = false;
     modelsRequest = undefined;
@@ -307,12 +335,17 @@ function loadModels() {
 
 async function startGeneration() {
   const choice = selectedModel.value;
-  const input = generationInput.value;
+  let input = generationInput.value;
   if (generating.value) throw new Error("视频正在生成，请等待完成");
   if (uploading.value) throw new Error("视频正在替换，请等待完成");
   if (deleting.value) throw new Error("节点正在删除");
   if (!choice || !input) throw new Error("请先选择视频模型");
-  if (!generationPrompt.value) throw new Error("请输入生成提示词");
+  if (choice.providerId === "suanli") {
+    if (!suanliReady.value) throw new Error("当前算力模型不支持视频或音频引用，或没有可用的图片上传参数");
+    const values = suanliForm.value?.getValues();
+    if (!values || typeof values.prompt !== "string" || !values.prompt.trim()) throw new Error("请输入生成提示词");
+    input = { ...input, prompt: values.prompt, suanliValues: { modelRef: choice.modelId, values } };
+  } else if (!generationPrompt.value) throw new Error("请输入生成提示词");
   if (refList.value.some(item => item.value === undefined)) throw new Error("引用节点暂无内容，请先补充引用内容");
   if (choice.mode?.length && !matchingModes.value.length) throw new Error("当前模型没有适合这些参考素材的生成模式，请更换模型或调整引用");
   const workspace = files.getWorkspaceFiles();
@@ -371,7 +404,7 @@ function getConfig() {
       mode: selectedMode.value,
       generateAudio: data.value.generateAudio,
     },
-    models: models.value,
+    models: availableModels.value,
     ratios: ratioOptions,
     matchingModes: matchingModes.value,
   };
@@ -408,7 +441,7 @@ nodeTools.register({
     signal?.throwIfAborted();
     if (generating.value || deleting.value) throw new Error("节点正在生成或删除，请稍后修改配置");
     const choice = args.modelId === undefined ? selectedModel.value
-      : models.value.find((item) => item.providerId === args.providerId && item.modelId === args.modelId);
+      : availableModels.value.find((item) => item.providerId === args.providerId && item.modelId === args.modelId);
     if (!choice) throw new Error("请选择 getConfig 返回的有效视频模型");
     const durations = getDurations(choice);
     if (args.duration !== undefined && !durations.includes(args.duration)) throw new Error(`当前模型不支持时长 ${args.duration}，可选：${durations.join("、")}`);

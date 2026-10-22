@@ -23,6 +23,7 @@ import { ElButton, ElOption, ElOptionGroup, ElPopover, ElSelect } from "element-
 import { IconSparkles } from "@tabler/icons-vue";
 import { useNodeAi, useNodeToolsContext, type NodeMediaModel, type NodeMediaValue } from "@toonflow/nodes-scaffold/runtime";
 import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
+import { supportsMediaCapability } from "@toonflow/node-shared/mediaCapability";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
 import { useImageVariationNode } from "../useImageVariationNode";
 
@@ -86,8 +87,8 @@ async function refreshModels() {
       ratioFromSource = !props.settings.ratio;
       inheritModelConfig = false;
     }
-    models.value = result.filter(item => item.type === "image");
-    if (!props.settings.model) {
+    models.value = result.filter(item => item.type === "image" && supportsMediaCapability(item, "imageToImage"));
+    if (!models.value.some(item => JSON.stringify([item.providerId, item.modelId]) === props.settings.model)) {
       const choice = models.value[0];
       props.settings.model = choice ? JSON.stringify([choice.providerId, choice.modelId]) : "";
     }

@@ -26,7 +26,7 @@
 
 ## 文本模型与 Agent 工具
 
-文本模型继续沿用 Agent runtime 和其 OpenAI-compatible provider 适配器，将请求代理到 `POST /suanli/v1/chat/completions`。适配层把 Agent 生成的 `model` 转换成算力模型 UUID 字段 `model_id`，同时注入 `platform_code`、`client_task_id`、`sessionId`、`user_id` 和适用时的 `school_id`。`tools` 和流式 `tool_calls` 保持 OpenAI 兼容结构，使现有 Agent 工具循环继续工作。
+文本模型继续沿用 Agent runtime 和其 OpenAI-compatible provider 适配器，将请求代理到 `POST /suanli/v1/chat/completions`。适配层把 Agent 生成的 `model` 转换成算力模型 UUID 字段 `model_id`，同时注入 `platform_code: "toonflow"`、`client_task_id`、`sessionId`、`user_id` 和适用时的 `school_id`。`tools` 和流式 `tool_calls` 保持 OpenAI 兼容结构，使现有 Agent 工具循环继续工作。
 
 Agent 前端仍发送普通对话消息；客户端不直接访问算力中台，也不提交身份字段。工具调用、取消和会话记录沿用当前 Agent runtime 的事件与会话机制。
 

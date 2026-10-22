@@ -8,7 +8,9 @@
     "./referenceItem": "./src/components/referenceItem.vue",
     "./mediaHistory": "./src/components/mediaHistory.vue",
     "./mediaPrice": "./src/components/mediaPrice.vue",
+    "./suanliParamsForm": "./src/components/suanliParamsForm.vue",
     "./showNodeError": "./src/showNodeError.ts",
+    "./mediaCapability": "./src/mediaCapability.ts",
     "./useNodeReferences": "./src/useNodeReferences.ts",
     "./useNodeGeneration": "./src/useNodeGeneration.ts",
     "./groupNodeModels": "./src/groupNodeModels.ts"

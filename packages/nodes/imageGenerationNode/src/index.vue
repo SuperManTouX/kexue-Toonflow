@@ -52,6 +52,13 @@
           @preview="setReferencePreview"
           @remove="removeReference" />
         <promptInput v-if="editor?.mode === 'inpaint'" v-model="data.inpaintPromptModel" v-model:text="data.inpaintPrompt" :references="referenceMentions" expandable />
+        <suanliParamsForm
+          v-else-if="selectedModel?.providerId === 'suanli'"
+          ref="suanliForm"
+          v-model="data.suanliValues"
+          :modelRef="selectedModel.modelId"
+          :referenceText="suanliReferenceText"
+          :disabled="generating || deleting" />
         <promptInput v-else v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" expandable />
         <div class="promptFooter">
           <el-select
@@ -76,7 +83,7 @@
             </el-option-group>
           </el-select>
           <generationSettings
-            v-if="editor?.mode !== 'inpaint'"
+            v-if="editor?.mode !== 'inpaint' && selectedModel?.providerId !== 'suanli'"
             v-model:size="data.size"
             v-model:ratio="data.ratio"
             :sizes="sizeOptions"
@@ -84,12 +91,12 @@
             :disabled="generating || deleting || !selectedModel" />
           <el-button v-if="editor?.mode === 'inpaint'" class="confirmButton" type="primary" :icon="IconCheck" :loading="editor.busy" :disabled="deleting || uploading || !generationPrompt" @click="confirmInpaint().catch(error => showNodeError(error, '重绘节点创建失败'))">确认</el-button>
           <div v-else class="generationActions">
-            <mediaPrice v-if="priceInput" :input="{ ...priceInput, mediaType: 'image' }" :supported="selectedModel?.supportsPrice === true" />
+            <mediaPrice v-if="priceInput && selectedModel?.providerId !== 'suanli'" :input="{ ...priceInput, mediaType: 'image' }" :supported="selectedModel?.supportsPrice === true" />
             <el-button
               class="sendButton"
               :icon="generating ? IconPlayerStop : IconArrowUp"
-              :disabled="deleting || uploading || (!generating && (editor?.busy || !generationPrompt || !selectedModel))"
-              :title="generating ? '停止生成' : '生成图片'"
+              :disabled="deleting || uploading || (!generating && (editor?.busy || !selectedModel || selectedModel.providerId === 'suanli' && !suanliReady || selectedModel.providerId !== 'suanli' && !generationPrompt))"
+              :title="generating ? '停止生成' : selectedModel?.providerId === 'suanli' && !suanliReady ? '模型参数未就绪或不支持当前引用' : '生成图片'"
               :aria-label="generating ? '停止生成' : '生成图片'"
               @click="generating ? generationController?.abort() : startGeneration().catch((error) => showNodeError(error, '图片生成失败'))" />
           </div>
@@ -115,10 +122,12 @@ import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElImage
 import { IconCheck, IconPhotoAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconLayoutGrid, IconBrush, IconPencil, IconSun, IconCameraRotate, IconPanoramaHorizontal, IconChevronDown } from "@tabler/icons-vue";
 import { nodeSkeleton, nodeTools, useNode, z, type NodeMediaModel, type NodeImageRequest, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
 import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
+import { supportsMediaCapability, supportsSuanliImageReferences } from "@toonflow/node-shared/mediaCapability";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
 import { useNodeGeneration } from "@toonflow/node-shared/useNodeGeneration";
 import { useNodeReferences } from "@toonflow/node-shared/useNodeReferences";
 import promptInput from "@toonflow/node-shared/promptInput";
+import suanliParamsForm from "@toonflow/node-shared/suanliParamsForm";
 import referenceItem from "@toonflow/node-shared/referenceItem";
 import mediaHistory from "@toonflow/node-shared/mediaHistory";
 import mediaPrice from "@toonflow/node-shared/mediaPrice";
@@ -143,7 +152,7 @@ const { id, node, nodeProps, nodeEvent, outputs, files, ai, updateNodeInternals 
   label: "图片生成",
 });
 type PromptModel = NonNullable<InstanceType<typeof promptInput>["$props"]["modelValue"]>;
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; inpaintPrompt: string; inpaintPromptModel: PromptModel; model: string; size: string; ratio: string; inpaint?: ImageInpaint });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; inpaintPrompt: string; inpaintPromptModel: PromptModel; model: string; size: string; ratio: string; inpaint?: ImageInpaint; suanliValues?: { modelRef: string; values: Record<string, unknown> } });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.inpaintPrompt ??= "";
@@ -177,7 +186,23 @@ const generationState = useNodeGeneration(outputs, () => generationController?.a
 const { generating } = generationState;
 let generation: Promise<void> | undefined;
 let modelsRequest: Promise<void> | undefined;
-const selectedModel = computed(() => models.value.find((item) => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
+const imageCapability = computed(() => data.value.inpaint || refList.value.some(item => item.dataType === "IMAGE") ? "imageToImage" : "textToImage");
+const availableModels = computed(() => models.value.filter(item => supportsMediaCapability(item, imageCapability.value)));
+const selectedModel = computed(() => availableModels.value.find((item) => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
+const suanliForm = ref<InstanceType<typeof suanliParamsForm>>();
+const imageReferenceCount = computed(() => refList.value.filter(item => item.dataType === "IMAGE").length);
+const suanliReferencesSupported = computed(() => {
+  const template = suanliForm.value?.template;
+  const modelRef = selectedModel.value?.modelId;
+  const suanliValues = data.value.suanliValues;
+  const values = modelRef && suanliValues?.modelRef === modelRef ? suanliValues.values : {};
+  return !!modelRef && !!template && supportsSuanliImageReferences(modelRef, template, imageReferenceCount.value, values);
+});
+const suanliReady = computed(() => selectedModel.value?.providerId === "suanli"
+  && suanliForm.value?.template?.canGenerate === true
+  && !data.value.inpaint && suanliReferencesSupported.value);
+const suanliReferenceText = computed(() => refList.value.flatMap((item, index) =>
+  item.dataType === "STRING" && item.value?.trim() ? [`参考 ${index + 1}：\n${item.value.trim()}`] : []).join("\n\n"));
 const sizeOptions = computed(() => (selectedModel.value?.imageSizes?.length ? selectedModel.value.imageSizes : ["2K"]));
 const ratioOptions = computed(() => (selectedModel.value?.imageRatios?.length ? selectedModel.value.imageRatios : ["16:9"]));
 watch(
@@ -192,7 +217,12 @@ watch(
   },
   { flush: "sync" }
 );
-const modelGroups = computed(() => groupNodeModels(models.value));
+const modelGroups = computed(() => groupNodeModels(availableModels.value));
+watch([availableModels, () => data.value.model], ([choices, model]) => {
+  if (!models.value.length || choices.some(item => JSON.stringify([item.providerId, item.modelId]) === model)) return;
+  const first = choices[0];
+  if (first) data.value.model = JSON.stringify([first.providerId, first.modelId]);
+}, { flush: "sync" });
 const generationPrompt = computed(() =>
   [
     (editor.value?.mode === "inpaint" ? data.value.inpaintPrompt : data.value.prompt).trim(),
@@ -291,11 +321,6 @@ function loadModels() {
   modelsRequest = ai.getMediaModels().then((items) => {
     if (disposed || generating.value || deleting.value) return;
     models.value = items.filter((item) => item.type === "image");
-    // ACT: 只给空配置选默认模型，保留暂时不可用的旧选择及其参数。
-    if (!data.value.model) {
-      const first = models.value[0];
-      data.value.model = first ? JSON.stringify([first.providerId, first.modelId]) : "";
-    }
   }).finally(() => {
     modelsLoading.value = false;
     modelsRequest = undefined;
@@ -317,7 +342,7 @@ async function confirmInpaint() {
 }
 
 async function startGeneration() {
-  const input = generationInput.value;
+  let input = generationInput.value;
   if (generating.value) throw new Error("图片正在生成，请等待完成");
   if (panorama.value?.visible) throw new Error("请先关闭全景图，再启动图片生成");
   if (uploading.value) throw new Error("图片正在替换，请等待完成");
@@ -326,10 +351,16 @@ async function startGeneration() {
   if (multiAngleVisible.value) throw new Error("请先退出多角度，再启动图片生成");
   if (editor.value?.busy || editor.value?.mode === "mark") throw new Error("请先完成图片标记");
   if (editor.value?.mode === "inpaint") throw new Error("请先确认局部重绘，再到子节点生成");
-  if (!generationPrompt.value) throw new Error("请输入生成提示词");
+  const choice = selectedModel.value;
+  if (!choice || !input) throw new Error("请先选择图片模型");
+  if (choice.providerId === "suanli") {
+    if (!suanliReady.value) throw new Error("当前算力模型不支持图片引用、局部重绘或当前参数模板");
+    const values = suanliForm.value?.getValues();
+    if (!values || typeof values.prompt !== "string" || !values.prompt.trim()) throw new Error("请输入生成提示词");
+    input = { ...input, prompt: values.prompt, suanliValues: { modelRef: choice.modelId, values } };
+  } else if (!generationPrompt.value) throw new Error("请输入生成提示词");
   const references = refList.value.filter(item => !data.value.inpaint || item.dataType !== "IMAGE" || item.value?.url !== data.value.inpaint.source);
   if (references.some(item => item.value === undefined)) throw new Error("引用节点暂无内容，请先补充引用内容");
-  if (!input) throw new Error("请先选择图片模型");
   const workspace = files.getWorkspaceFiles();
   const controller = new AbortController();
   const inpaintData = data.value.inpaint;
@@ -412,7 +443,7 @@ function getConfig() {
       size: data.value.size,
       ratio: data.value.ratio,
     },
-    models: models.value,
+    models: availableModels.value,
   };
 }
 
@@ -444,7 +475,7 @@ nodeTools.register({
     signal?.throwIfAborted();
     if (generating.value || deleting.value) throw new Error("节点正在生成或删除，请稍后修改配置");
     const choice = args.modelId === undefined ? selectedModel.value
-      : models.value.find((item) => item.providerId === args.providerId && item.modelId === args.modelId);
+      : availableModels.value.find((item) => item.providerId === args.providerId && item.modelId === args.modelId);
     if (!choice) throw new Error("请选择 getConfig 返回的有效图片模型");
     const sizes = choice.imageSizes?.length ? choice.imageSizes : ["2K"];
     const ratios = choice.imageRatios?.length ? choice.imageRatios : ["16:9"];
