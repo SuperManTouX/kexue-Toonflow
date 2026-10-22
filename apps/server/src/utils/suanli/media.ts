@@ -232,7 +232,8 @@ export async function readSuanliMediaTemplate(modelRef: string) {
     maxImages: parsed.data.data.maxImages,
     ...(parsed.data.data.promptPlaceholder ? { promptPlaceholder: parsed.data.data.promptPlaceholder } : {}),
     params: parsed.data.data.params,
-    canGenerate: parsed.data.data.inputType === "text",
+    canGenerate: parsed.data.data.inputType === "text"
+      || model.category === "image" && parsed.data.data.params.some(param => param.ui === "imageUpload" && param.name === "imageUrls"),
   };
   const names = new Set<string>();
   for (const param of template.params) {

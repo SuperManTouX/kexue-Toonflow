@@ -20,49 +20,12 @@
       </div>
     </el-header>
     <el-main class="pageContent">
-      <section class="creationPanel" aria-label="创建项目">
-        <div class="brand">
-          <el-image class="brandLogo" :src="logoUrl" fit="contain" alt="Toonflow" />
-          <h1>Toonflow</h1>
-        </div>
-        <div class="promptArea">
-          <span class="arrowHint inspirationHint">
-            灵感创作模式
-            <svg viewBox="0 0 60 60" fill="none" aria-hidden="true">
-              <path d="M4 9C21 0 44 5 40 23C36 39 14 34 22 20C30 7 49 21 47 52M38 43L47 52L54 42" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </span>
-          <el-card class="promptCard" :class="{ draggingAttachments }" shadow="never" :bodyStyle="{ padding: '20px' }" :footerStyle="{ padding: '12px 16px' }" @dragenter.capture="dragEnterAttachments" @dragover.capture="dragOverAttachments" @dragleave.capture="dragLeaveAttachments" @drop.capture="dropAttachments">
-            <div v-if="draggingAttachments" class="attachmentDropOverlay" role="status" aria-live="polite">
-              <icon-paperclip :size="20" aria-hidden="true" />
-              <strong>松开添加附件</strong>
-              <span>图片、视频、文档或代码文件</span>
-            </div>
-            <input ref="attachmentInput" type="file" :accept="attachmentAccept" multiple hidden :disabled="creating || opening" @change="selectAttachments" />
-            <attachmentList v-if="promptAttachments.length" class="promptAttachments" :attachments="promptAttachments" removable restorable :disabled="creating || opening" @remove="promptAttachments.splice($event, 1)" @restore="restoreAttachment" />
-            <el-input ref="promptInput" v-model="prompt" type="textarea" :rows="4" resize="none" :disabled="creating || opening" :placeholder="promptPlaceholder" aria-label="创作描述" @paste.capture="pasteAttachments" />
-            <template #footer>
-              <div class="composerFooter">
-                <workspacePicker ref="promptWorkspacePicker" v-model="workspaceDirectory" :disabled="creating || opening" />
-                <el-space class="sendActions" wrap :size="12">
-                  <el-button text circle :icon="IconPaperclip" :disabled="creating || opening" aria-label="添加附件" title="添加附件" @click="attachmentInput?.click()" />
-                  <modelPopover v-model="selectedModel" v-model:reasoningEffort="reasoningEffort" class="modelSelect" :disabled="creating || opening" />
-                  <el-button class="sendButton" type="primary" :circle="!!workspaceDirectory" :icon="workspaceDirectory ? IconArrowUp : IconFolder" :loading="creating" :disabled="creating || opening" :aria-label="workspaceDirectory ? '发送' : '选择工作目录'" @click="workspaceDirectory ? createProject() : promptWorkspacePicker?.chooseDirectory()">
-                    <template v-if="!workspaceDirectory" #default>选择工作目录</template>
-                  </el-button>
-                </el-space>
-              </div>
-              <p v-if="!workspaceDirectory" class="workspaceHint" role="status">请先选择一个空文件夹作为工作目录，画布和素材会保存在这里。</p>
-            </template>
-          </el-card>
-        </div>
-      </section>
       <section class="projectList" aria-labelledby="projectListTitle">
         <div class="sectionHeader">
           <h2 id="projectListTitle">项目列表</h2>
           <el-space wrap>
             <el-button :icon="IconFolderOpen" :disabled="creating || opening" @click="openProject()">导入项目</el-button>
-            <el-button :icon="IconFolderPlus" :disabled="creating || opening" @click="createProject(false)">添加项目</el-button>
+            <el-button :icon="IconFolderPlus" :disabled="creating || opening" @click="createProject()">添加项目</el-button>
             <el-button circle :icon="sortDescending ? IconSortDescending : IconSortAscending" :aria-label="sortDescending ? '按时间降序' : '按时间升序'" @click="sortDescending = !sortDescending" />
             <el-radio-group v-model="viewMode" aria-label="项目视图">
               <el-radio-button value="grid" aria-label="网格视图"><icon-layout-grid :size="16" /></el-radio-button>
@@ -96,25 +59,19 @@
 
 <script setup lang="ts">
 import { canManageHost, logout } from "@/lib/auth";
-import { locale, translate } from "@toonflow/i18n/vue";
+import { locale } from "@toonflow/i18n/vue";
 import axios from "axios";
 import { storeToRefs } from "pinia";
-import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage, ElMessageBox, type InputInstance } from "element-plus";
-import { getReadableFileMimeType, readableFileAccept } from "@toonflow/server/documentFormats";
+import { ElMessage, ElMessageBox } from "element-plus";
 import {
   IconSettings, IconBrandGithub, IconQrcode, IconDeviceDesktop,
-  IconArrowUp, IconLayoutGrid,
+  IconLayoutGrid,
   IconList, IconSortDescending,
   IconSortAscending, IconFolder, IconEdit,
-  IconFolderMinus, IconFolderPlus, IconFolderOpen, IconPaperclip,
+  IconFolderMinus, IconFolderPlus, IconFolderOpen,
 } from "@tabler/icons-vue";
-import modelPopover from "@/components/modelPopover.vue";
-import attachmentList from "@/components/agent/attachmentList.vue";
-import { createPastedTextFile, readTextAttachment } from "@/components/agent/textAttachments";
-import type { AgentAttachment } from "@/components/agent/types";
-import logoUrl from "@toonflow/assets/logo.svg";
 import { useWorkspaceStore, type Project } from "@/stores/workspace";
 import { isDesktop } from "@/lib/platform";
 import { hasDesktopUpdate } from "@/stores/desktopUpdate";
@@ -130,37 +87,12 @@ const mobileConnect = defineAsyncComponent(() => import("@/components/mobileConn
 const router = useRouter();
 const creating = ref(false);
 const opening = ref(false);
-const promptWorkspacePicker = ref<InstanceType<typeof workspacePicker>>();
 const relocationPicker = ref<InstanceType<typeof workspacePicker>>();
-const prompt = ref("");
-const promptInput = ref<InputInstance>();
-const promptAttachments = ref<AgentAttachment[]>([]);
-const attachmentInput = ref<HTMLInputElement>();
-const attachmentAccept = `image/*,video/*,${readableFileAccept}`;
-const draggingAttachments = ref(false);
-let attachmentDragDepth = 0;
 const workspaceStore = useWorkspaceStore();
 const { project, projectList } = storeToRefs(workspaceStore);
-const workspaceDirectory = ref(project.value?.directory ?? "");
 const linuxDevWorkspaceDirectory = import.meta.env.VITE_TOONFLOW_DEV_WORKSPACE_DIR;
-const placeholderPhrases = [
-  "描述你想创作的内容，让灵感从这里开始…",
-  "把一个故事灵感，变成一段精彩的短片…",
-  "为你的主角设计独特的外形和性格…",
-  "创作一段雨夜街头的电影感镜头…",
-  "把这段文字拆解成连贯的分镜画面…",
-  "为一场奇幻冒险生成场景和角色…",
-  "为你的画面配上一段合适的音乐…",
-  "写一段温暖的旁白，讲述这个故事…",
-  "设计一支富有想象力的产品宣传片…",
-  "从一句话开始，搭建你的创作工作流…",
-];
-const promptPlaceholder = ref(translate(placeholderPhrases[0]!));
 
 onMounted(() => {
-  window.addEventListener("dragend", clearAttachmentDrag, true);
-  window.addEventListener("drop", clearAttachmentDrag, true);
-  window.addEventListener("blur", clearAttachmentDrag);
   const currentUrl = new URL(window.location.href);
   if (import.meta.env.DEV && isDesktop && linuxDevWorkspaceDirectory
     && currentUrl.searchParams.get("linuxDevWorkspace") === "1") {
@@ -170,164 +102,13 @@ onMounted(() => {
       void openProject({ directory: linuxDevWorkspaceDirectory, name: "linuxDevWorkspace", lastOpenedAt: 0 });
     }
   }
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let phraseIndex = 0;
-  watch([() => !!prompt.value, locale], ([hasInput], _previous, onCleanup) => {
-    if (reduceMotion) {
-      promptPlaceholder.value = translate(placeholderPhrases[0]!);
-      return;
-    }
-    if (hasInput) return;
-    const segmenter = new Intl.Segmenter(locale.value, { granularity: "grapheme" });
-    const phrases = placeholderPhrases.map(phrase => [...segmenter.segment(translate(phrase))].map(part => part.segment));
-    let characterCount = 0;
-    let deleting = false;
-    let timer: ReturnType<typeof setTimeout>;
-    promptPlaceholder.value = "";
-
-    function typePlaceholder() {
-      const phrase = phrases[phraseIndex]!;
-      characterCount += deleting ? -1 : 1;
-      promptPlaceholder.value = phrase.slice(0, characterCount).join("");
-      let delay = deleting ? 35 : 85;
-      if (characterCount === phrase.length) {
-        deleting = true;
-        delay = 1800;
-      } else if (characterCount === 0) {
-        deleting = false;
-        phraseIndex = (phraseIndex + 1) % placeholderPhrases.length;
-        delay = 300;
-      }
-      timer = setTimeout(typePlaceholder, delay);
-    }
-
-    timer = setTimeout(typePlaceholder, 300);
-    onCleanup(() => clearTimeout(timer));
-  }, { immediate: true });
 });
 
-onUnmounted(() => {
-  window.removeEventListener("dragend", clearAttachmentDrag, true);
-  window.removeEventListener("drop", clearAttachmentDrag, true);
-  window.removeEventListener("blur", clearAttachmentDrag);
-});
-watch([creating, opening], ([creating, opening]) => {
-  if (creating || opening) clearAttachmentDrag();
-}, { flush: "sync" });
-
-const selectedModel = ref("");
-const reasoningEffort = ref("");
 const sortDescending = ref(true);
 const viewMode = ref("grid");
 const sortedProjects = computed(() => [...projectList.value].sort((left, right) =>
   sortDescending.value ? right.lastOpenedAt - left.lastOpenedAt : left.lastOpenedAt - right.lastOpenedAt
 ));
-
-function pasteAttachments(event: ClipboardEvent) {
-  if (creating.value || opening.value) return;
-  try {
-    const files = Array.from(event.clipboardData?.files ?? []);
-    if (!files.length) {
-      const file = createPastedTextFile(event.clipboardData?.getData("text/plain") ?? "");
-      if (file) files.push(file);
-    }
-    if (!files.length) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    addAttachments(files);
-  } catch (error) {
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    ElMessage.error(error instanceof Error ? error.message : "添加附件失败，请重试");
-  }
-}
-
-function selectAttachments(event: Event) {
-  const input = event.target as HTMLInputElement;
-  addAttachments(Array.from(input.files ?? []));
-  input.value = "";
-}
-
-function clearAttachmentDrag() {
-  attachmentDragDepth = 0;
-  draggingAttachments.value = false;
-}
-
-function dragEnterAttachments(event: DragEvent) {
-  if (!event.dataTransfer?.types.includes("Files")) return;
-  event.preventDefault();
-  event.stopPropagation();
-  if (creating.value || opening.value) return clearAttachmentDrag();
-  attachmentDragDepth++;
-  draggingAttachments.value = true;
-}
-
-function dragOverAttachments(event: DragEvent) {
-  if (!event.dataTransfer?.types.includes("Files")) return;
-  event.preventDefault();
-  event.stopPropagation();
-  event.dataTransfer.dropEffect = creating.value || opening.value ? "none" : "copy";
-  if (creating.value || opening.value) return clearAttachmentDrag();
-  attachmentDragDepth = Math.max(1, attachmentDragDepth);
-  draggingAttachments.value = true;
-}
-
-function dragLeaveAttachments(event: DragEvent) {
-  if (!draggingAttachments.value) return;
-  attachmentDragDepth = Math.max(0, attachmentDragDepth - 1);
-  const target = event.currentTarget;
-  if (!attachmentDragDepth || (target instanceof Node && event.relatedTarget instanceof Node && !target.contains(event.relatedTarget))) clearAttachmentDrag();
-}
-
-function dropAttachments(event: DragEvent) {
-  if (!event.dataTransfer?.types.includes("Files")) return;
-  event.preventDefault();
-  event.stopPropagation();
-  clearAttachmentDrag();
-  addAttachments(Array.from(event.dataTransfer.files));
-}
-
-function addAttachments(files: File[]) {
-  if (creating.value || opening.value) return;
-  for (const file of files) {
-    const readableMimeType = getReadableFileMimeType(file.name, file.type);
-    const mimeType = readableMimeType ?? file.type.split(";")[0]!.trim().toLowerCase();
-    if (!readableMimeType && !/^(image|video)\//.test(mimeType)) {
-      ElMessage.warning("只支持图片、视频和受支持的文本或文档文件");
-      continue;
-    }
-    if (!file.size || file.size > 100 * 1024 * 1024) {
-      ElMessage.warning("附件不能为空且不能超过 100 MB");
-      continue;
-    }
-    if (mimeType === "text/plain" && file.size > 400000) {
-      ElMessage.warning("文本附件不能超过 400000 字节");
-      continue;
-    }
-    if (promptAttachments.value.length >= 20) {
-      ElMessage.warning("每条消息最多添加 20 个附件");
-      break;
-    }
-    promptAttachments.value.push({ name: file.name, path: "", mimeType, file });
-  }
-}
-
-async function restoreAttachment(index: number) {
-  const attachment = promptAttachments.value[index];
-  if (attachment?.mimeType !== "text/plain" || creating.value || opening.value) return;
-  try {
-    const text = await readTextAttachment(attachment);
-    const currentIndex = promptAttachments.value.indexOf(attachment);
-    if (currentIndex < 0 || creating.value || opening.value) return;
-    prompt.value += `${prompt.value ? "\n" : ""}${text}`;
-    promptAttachments.value.splice(currentIndex, 1);
-    await nextTick();
-    promptInput.value?.focus();
-    promptInput.value?.textarea?.setSelectionRange(prompt.value.length, prompt.value.length);
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "取回文本失败，请重试");
-  }
-}
 
 async function openProject(project?: Project) {
   if (creating.value || opening.value) return;
@@ -362,26 +143,20 @@ async function renameProject(project: Project) {
   if (result) workspaceStore.renameProject(project.directory, result.value);
 }
 
-async function createProject(fromPrompt = true) {
-  if (creating.value || opening.value || (fromPrompt && !workspaceDirectory.value)) return;
+async function createProject() {
+  if (creating.value || opening.value) return;
   creating.value = true;
   try {
-    let path = workspaceDirectory.value;
-    if (!fromPrompt) {
-      const confirmed = await ElMessageBox.confirm("请选择一个空文件夹作为项目目录，画布和素材将保存在其中。", "添加项目", {
-        confirmButtonText: "选择空文件夹", cancelButtonText: "取消", type: "info",
-      }).then(() => true, () => false);
-      if (!confirmed) return;
-      path = await relocationPicker.value?.chooseDirectory() ?? "";
-      if (!path) return;
-    }
+    const confirmed = await ElMessageBox.confirm("请选择一个空文件夹作为项目目录，画布和素材将保存在其中。", "添加项目", {
+      confirmButtonText: "选择空文件夹", cancelButtonText: "取消", type: "info",
+    }).then(() => true, () => false);
+    if (!confirmed) return;
+    const path = await relocationPicker.value?.chooseDirectory() ?? "";
+    if (!path) return;
     const { directory, empty } = await useWorkspaceFiles(path).list();
     if (!empty) return ElMessage.warning("该文件夹不为空，请重新选择空文件夹；已有项目请使用“导入项目”或点击项目列表打开。");
     await useWorkspaceFiles(directory).writeJson("画布1.json", { toonflowCanvas: true, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } }, true);
     await workspaceStore.openProject(directory);
-    if (fromPrompt && (prompt.value.trim() || promptAttachments.value.length)) {
-      workspaceStore.pendingAgentMessage = { directory: workspaceStore.project!.directory, prompt: prompt.value, attachments: [...promptAttachments.value], model: selectedModel.value, reasoningEffort: reasoningEffort.value };
-    }
     await router.push("/workspace");
   } catch (err) {
     ElMessage.error(axios.isAxiosError<{ message?: string }>(err)
@@ -466,134 +241,6 @@ async function createProject(fromPrompt = true) {
 
   .pageContent {
     padding: 24px clamp(20px, 4vw, 56px) 56px;
-
-    .creationPanel {
-      max-width: 800px;
-      margin: clamp(32px, 6vh, 64px) auto 56px;
-
-      .brand {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 16px;
-        margin-bottom: 36px;
-
-        .brandLogo {
-          width: 48px;
-          height: 48px;
-
-          .dark & {
-            filter: invert(1);
-          }
-        }
-
-        h1 {
-          margin: 0;
-          font-size: clamp(30px, 4vw, 38px);
-          font-weight: 600;
-          letter-spacing: -1px;
-        }
-      }
-
-      .promptArea {
-        position: relative;
-
-        .inspirationHint {
-          bottom: calc(100% + 4px);
-          left: 16px;
-          height: 30px;
-          padding-right: 44px;
-
-          svg {
-            position: absolute;
-            top: -2px;
-            right: 0;
-            width: 36px;
-            height: 36px;
-          }
-        }
-
-        .promptCard {
-          position: relative;
-          border-radius: calc(var(--ui-radius) * 2.5);
-          border-color: var(--el-border-color-lighter);
-          box-shadow: var(--el-box-shadow-lighter);
-
-          &:focus-within {
-            border-color: var(--el-color-primary-light-5);
-          }
-
-          &.draggingAttachments {
-            border-color: var(--el-color-primary-light-5);
-          }
-
-          .attachmentDropOverlay {
-            position: absolute;
-            inset: 0;
-            z-index: 2;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
-            border-radius: inherit;
-            background: var(--el-bg-color);
-            color: var(--el-text-color-primary);
-            pointer-events: none;
-
-            > svg { color: var(--el-text-color-secondary); }
-            strong { font-size: 14px; font-weight: 500; }
-            span { color: var(--el-text-color-secondary); font-size: 12px; }
-          }
-
-          .promptAttachments {
-            margin-bottom: 12px;
-          }
-
-          :deep(.el-textarea__inner) {
-            padding: 4px 0;
-            box-shadow: none;
-            background: transparent;
-            font-size: 15px;
-            line-height: 1.8;
-          }
-
-          :deep(.el-card__footer) {
-            background: var(--el-fill-color-extra-light);
-          }
-
-          .composerFooter {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 12px;
-
-            .sendActions {
-              margin-left: auto;
-              justify-content: flex-end;
-
-              .modelSelect {
-                width: 190px;
-              }
-
-              .sendButton {
-                height: 36px;
-
-                &.is-circle { width: 36px; }
-              }
-            }
-          }
-
-          .workspaceHint {
-            margin: 12px 0 0;
-            color: var(--el-text-color-regular);
-            font-size: 13px;
-            line-height: 1.6;
-          }
-        }
-      }
-    }
 
     .projectList {
       max-width: 1040px;

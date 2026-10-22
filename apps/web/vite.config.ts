@@ -10,25 +10,39 @@ import { i18nPlugin } from "@toonflow/i18n/vite";
 
 const desktopWebDevelopment = process.env.TOONFLOW_DEV_DESKTOP_WEB === "1";
 const linuxDevDesktopWeb = desktopWebDevelopment && process.platform === "linux";
+const e2eMode = !!process.env.TOONFLOW_E2E_TEMP_DIRECTORY;
+const webPort = Number(process.env.TOONFLOW_DEV_WEB_PORT || 5173);
+const serverPort = Number(process.env.TOONFLOW_DEV_SERVER_PORT || 3000);
 const linuxDevWorkspaceDirectory = linuxDevDesktopWeb
   ? process.env.TOONFLOW_DEV_WORKSPACE_DIR ?? resolve(import.meta.dirname, "../../data/workspaces/linuxDevWorkspace")
   : "";
+const e2eWarmupFiles = [
+  "./src/pages/workspace/index.vue",
+  "./src/components/settings/index.vue",
+  "./src/components/settings/panels/general/index.vue",
+  "./src/components/settings/panels/general/nodeMenuSettings.vue",
+  "./src/components/settings/panels/mediaModel/index.vue",
+];
 
 export default defineConfig({
+  cacheDir: e2eMode ? resolve(process.env.TOONFLOW_E2E_TEMP_DIRECTORY!, "vite-cache") : undefined,
   css: { postcss: postcssConfig },
   define: {
     "import.meta.env.appVersion": JSON.stringify(desktopConfig.app.version),
     "import.meta.env.VITE_TOONFLOW_DEV_WORKSPACE_DIR": JSON.stringify(linuxDevWorkspaceDirectory),
   },
   server: {
-    open: desktopWebDevelopment
-      ? `http://127.0.0.1:5173/?desktop=1${linuxDevDesktopWeb ? "&linuxDevWorkspace=1" : ""}`
+    port: webPort,
+    strictPort: process.env.TOONFLOW_DEV_STRICT_PORT === "1",
+    warmup: e2eMode ? { clientFiles: e2eWarmupFiles } : undefined,
+    open: desktopWebDevelopment && process.env.TOONFLOW_DEV_WEB_OPEN !== "0"
+      ? `http://127.0.0.1:${webPort}/?desktop=1${linuxDevDesktopWeb ? "&linuxDevWorkspace=1" : ""}`
       : undefined,
     proxy: {
-      "/mcp": { target: "http://127.0.0.1:3000", changeOrigin: false },
-      "/a2a": { target: "http://127.0.0.1:3000", changeOrigin: false },
+      "/mcp": { target: `http://127.0.0.1:${serverPort}`, changeOrigin: false },
+      "/a2a": { target: `http://127.0.0.1:${serverPort}`, changeOrigin: false },
       "/api": {
-        target: "http://127.0.0.1:3000",
+        target: `http://127.0.0.1:${serverPort}`,
         changeOrigin: false,
         configure(proxy) {
           proxy.on("proxyReq", (request, incoming) => {
@@ -38,6 +52,7 @@ export default defineConfig({
       },
     },
   },
+  optimizeDeps: e2eMode ? { entries: ["index.html", ...e2eWarmupFiles] } : undefined,
   resolve: {
     alias: [
       { find: "@", replacement: fileURLToPath(new URL("./src", import.meta.url)) },

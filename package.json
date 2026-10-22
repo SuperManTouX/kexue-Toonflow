@@ -27,6 +27,7 @@
   ],
   "scripts": {
     "dev": "bun run dev:desktop",
+    "e2e": "playwright test --config playwrightConfig.ts",
     "dev:web": "bun run --cwd apps/web dev",
     "dev:server": "bun run --cwd apps/server dev",
     "dev:desktop": "bun run --cwd apps/desktop dev",
@@ -49,6 +50,7 @@
     "build:tools": "bun -e \"import { rmSync } from '@toonflow/file'; import { resolve } from 'node:path'; rmSync(resolve('build/tools'), { recursive: true, force: true });\" && NODE_ENV=production bun run --filter './packages/tools/*' build"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@toonflow/file": "workspace:*",
     "@types/bun": "^1.4.2",
     "@types/postcss-pxtorem": "^6.1.0",

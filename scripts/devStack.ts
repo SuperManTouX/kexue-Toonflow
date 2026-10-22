@@ -2,8 +2,10 @@ import { resolve } from "node:path";
 
 const desktopMode = process.argv[2] === "desktop";
 const appDirectory = resolve(import.meta.dirname, "..");
+const webPort = process.env.TOONFLOW_DEV_WEB_PORT || "5173";
+const serverPort = process.env.TOONFLOW_DEV_SERVER_PORT || "3000";
 const linuxDevWorkspaceDirectory = desktopMode && process.platform === "linux"
-  ? resolve(appDirectory, "data/workspaces/linuxDevWorkspace")
+  ? resolve(appDirectory, process.env.TOONFLOW_DEV_WORKSPACE_DIR?.trim() || "data/workspaces/linuxDevWorkspace")
   : undefined;
 if (process.argv.length > 3 || process.argv[2] && !desktopMode) {
   console.error("用法：bun scripts/devStack.ts [desktop]");
@@ -15,11 +17,11 @@ if (!desktopMode && !process.env.EXTERNAL_TOKEN_VERIFICATION_URL) {
   process.exit(1);
 }
 
-if (desktopMode) console.log(`桌面端浏览器联调：http://127.0.0.1:5173/?desktop=1${linuxDevWorkspaceDirectory ? "&linuxDevWorkspace=1" : ""}`);
+if (desktopMode) console.log(`桌面端浏览器联调：http://127.0.0.1:${webPort}/?desktop=1${linuxDevWorkspaceDirectory ? "&linuxDevWorkspace=1" : ""}`);
 
 const services = [
-  { name: "Web", directory: resolve(import.meta.dirname, "../apps/web") },
-  { name: "Server", directory: resolve(import.meta.dirname, "../apps/server") },
+  { name: "Web", directory: resolve(import.meta.dirname, "../apps/web"), environment: { TOONFLOW_DEV_WEB_PORT: webPort, TOONFLOW_DEV_SERVER_PORT: serverPort } },
+  { name: "Server", directory: resolve(import.meta.dirname, "../apps/server"), environment: { TOONFLOW_DEV_SERVER_PORT: serverPort } },
 ];
 const processes = services.map(service => ({
   ...service,
@@ -27,6 +29,7 @@ const processes = services.map(service => ({
     cwd: service.directory,
     env: {
       ...process.env,
+      ...service.environment,
       TOONFLOW_DEV_DESKTOP_WEB: desktopMode ? "1" : "0",
       ...(linuxDevWorkspaceDirectory ? {
         TOONFLOW_DEV_WORKSPACE_DIR: linuxDevWorkspaceDirectory,
