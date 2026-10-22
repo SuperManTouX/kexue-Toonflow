@@ -60,14 +60,14 @@
         <promptInput v-else v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" expandable />
         <div class="promptFooter">
           <el-select
-            v-model="data.model"
+            v-model="visibleModel"
             class="modelSelect"
             filterable
             :loading="modelsLoading"
             :disabled="generating || deleting"
             placeholder="选择模型"
             aria-label="生成模型"
-            noDataText="请先在设置中添加视频模型"
+            noDataText="请先登录 SXWZ 算力"
             placement="top-start"
             @visible-change="(visible) => visible && loadModels().catch((error) => showNodeError(error, '模型读取失败'))">
             <template #prefix><icon-sparkles :size="17" /></template>
@@ -80,7 +80,7 @@
             </el-option-group>
           </el-select>
           <generationSettings
-            v-if="selectedModel?.providerId !== 'suanli'"
+            v-if="selectedModel && selectedModel.providerId !== 'suanli'"
             v-model:duration="data.duration"
             v-model:resolution="data.resolution"
             v-model:ratio="data.ratio"
@@ -111,7 +111,7 @@ import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from "vue";
 import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElDropdown, ElDropdownMenu, ElDropdownItem } from "element-plus";
 import { IconCameraAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconMusic, IconLayersSubtract, IconScissors, IconPhotoScan, IconPlayerSkipBack, IconPlayerSkipForward } from "@tabler/icons-vue";
 import { nodeSkeleton, nodeTools, useNode, z, type NodeMediaModel, type NodeVideoRequest, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
-import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
+import { findSuanliNodeModel, groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
 import { supportsMediaCapability, supportsSuanliImageReferences } from "@toonflow/node-shared/mediaCapability";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
 import { useNodeGeneration } from "@toonflow/node-shared/useNodeGeneration";
@@ -184,7 +184,8 @@ const videoCapability = computed(() => mediaCounts.value.image === 2
   ? "firstLastFrame"
   : mediaCounts.value.image ? "imageToVideo" : "textToVideo");
 const availableModels = computed(() => models.value.filter(item => supportsMediaCapability(item, videoCapability.value)));
-const selectedModel = computed(() => availableModels.value.find((item) => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
+const selectedModel = computed(() => findSuanliNodeModel(availableModels.value, data.value.model));
+const visibleModel = computed({ get: () => selectedModel.value ? data.value.model : "", set: value => { data.value.model = value; } });
 const suanliReady = computed(() => selectedModel.value?.providerId === "suanli"
   && suanliForm.value?.template?.canGenerate === true
   && mediaCounts.value.video === 0 && mediaCounts.value.audio === 0
@@ -236,7 +237,7 @@ watch([selectedModel, () => data.value.duration], ([choice]) => {
 const modelGroups = computed(() => groupNodeModels(availableModels.value));
 watch([availableModels, () => data.value.model], ([choices, model]) => {
   if (!models.value.length || choices.some(item => JSON.stringify([item.providerId, item.modelId]) === model)) return;
-  const first = choices[0];
+  const first = choices.find(item => item.providerId === "suanli");
   if (first) data.value.model = JSON.stringify([first.providerId, first.modelId]);
 }, { flush: "sync" });
 const generationPrompt = computed(() =>
@@ -404,7 +405,7 @@ function getConfig() {
       mode: selectedMode.value,
       generateAudio: data.value.generateAudio,
     },
-    models: availableModels.value,
+    models: availableModels.value.filter(item => item.providerId === "suanli"),
     ratios: ratioOptions,
     matchingModes: matchingModes.value,
   };
@@ -441,8 +442,8 @@ nodeTools.register({
     signal?.throwIfAborted();
     if (generating.value || deleting.value) throw new Error("节点正在生成或删除，请稍后修改配置");
     const choice = args.modelId === undefined ? selectedModel.value
-      : availableModels.value.find((item) => item.providerId === args.providerId && item.modelId === args.modelId);
-    if (!choice) throw new Error("请选择 getConfig 返回的有效视频模型");
+      : availableModels.value.find((item) => item.providerId === "suanli" && item.providerId === args.providerId && item.modelId === args.modelId);
+    if (!choice) throw new Error("请选择 getConfig 返回的有效 SXWZ 算力视频模型");
     const durations = getDurations(choice);
     if (args.duration !== undefined && !durations.includes(args.duration)) throw new Error(`当前模型不支持时长 ${args.duration}，可选：${durations.join("、")}`);
     const duration = args.duration ?? (durations.includes(data.value.duration!) ? data.value.duration : durations[0]);

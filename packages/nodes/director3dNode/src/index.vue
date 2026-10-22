@@ -26,6 +26,7 @@ import { useVueFlow } from "@vue-flow/core";
 import { IconCube3dSphere } from "@tabler/icons-vue";
 import { ElLoading, ElMessage } from "element-plus";
 import { nodeSkeleton, useNode, useNodeFiles, z, type NodeHandle, type NodeData, type NodeAiModel } from "@toonflow/nodes-scaffold/runtime";
+import { findSuanliNodeModel } from "@toonflow/node-shared/groupNodeModels";
 import { useNodeReferences } from "@toonflow/node-shared/useNodeReferences";
 import promptInput from "@toonflow/node-shared/promptInput";
 import referenceItem from "@toonflow/node-shared/referenceItem";
@@ -85,7 +86,7 @@ const editing = ref(false);
 const tasks = ref<DirectorGeneration[]>([]);
 const modelsLoading = ref(false);
 const models = ref<NodeAiModel[]>([]);
-const selectedModel = computed(() => models.value.find(item => JSON.stringify([item.providerId, item.modelId]) === model.value));
+const selectedModel = computed(() => findSuanliNodeModel(models.value, model.value));
 const preview = ref("");
 let previewVersion = 0;
 const modelLoading = ref(true);
@@ -289,7 +290,7 @@ async function loadModels() {
     const available = await ai.getModels();
     if (disposed) return;
     models.value = available;
-    const first = models.value[0];
+    const first = models.value.find(item => item.providerId === "suanli");
     // ACT: 只给空配置选默认模型，保留暂时不可用的旧选择。
     if (!model.value) model.value = first ? JSON.stringify([first.providerId, first.modelId]) : "";
   } catch (error) {

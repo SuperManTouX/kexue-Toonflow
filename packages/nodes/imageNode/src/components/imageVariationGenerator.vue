@@ -1,6 +1,6 @@
 <template>
   <footer class="variationFooter">
-    <el-select v-model="settings.model" class="modelSelect" filterable :loading="modelsLoading" :disabled="busy" placeholder="选择图片模型" :aria-label="`${label}模型`" noDataText="请先在设置中添加图片模型" placement="top-start" @visible-change="visible => visible && refreshModels()">
+    <el-select v-model="visibleModel" class="modelSelect" filterable :loading="modelsLoading" :disabled="busy" placeholder="选择图片模型" :aria-label="`${label}模型`" noDataText="请先登录 SXWZ 算力" placement="top-start" @visible-change="visible => visible && refreshModels()">
       <el-option-group v-for="provider in modelGroups" :key="provider.id" :label="provider.label">
         <el-option v-for="model in provider.models" :key="model.modelId" :label="model.label" :value="JSON.stringify([model.providerId, model.modelId])" />
       </el-option-group>
@@ -22,7 +22,7 @@ import { useNode, useVueFlow } from "@vue-flow/core";
 import { ElButton, ElOption, ElOptionGroup, ElPopover, ElSelect } from "element-plus";
 import { IconSparkles } from "@tabler/icons-vue";
 import { useNodeAi, useNodeToolsContext, type NodeMediaModel, type NodeMediaValue } from "@toonflow/nodes-scaffold/runtime";
-import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
+import { findSuanliNodeModel, groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
 import { supportsMediaCapability } from "@toonflow/node-shared/mediaCapability";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
 import { useImageVariationNode } from "../useImageVariationNode";
@@ -47,7 +47,8 @@ const models = ref<NodeMediaModel[]>([]);
 const modelsLoading = ref(false);
 const busy = computed(() => props.disabled || generating.value);
 const modelGroups = computed(() => groupNodeModels(models.value));
-const selectedModel = computed(() => models.value.find(item => JSON.stringify([item.providerId, item.modelId]) === props.settings.model));
+const selectedModel = computed(() => findSuanliNodeModel(models.value, props.settings.model));
+const visibleModel = computed({ get: () => selectedModel.value ? props.settings.model : "", set: value => { props.settings.model = value; } });
 const sizeOptions = computed(() => selectedModel.value?.imageSizes?.length ? selectedModel.value.imageSizes : ["2K"]);
 const ratioOptions = computed(() => selectedModel.value?.imageRatios?.length ? selectedModel.value.imageRatios : ["16:9"]);
 let generationController: AbortController | undefined;
@@ -89,7 +90,7 @@ async function refreshModels() {
     }
     models.value = result.filter(item => item.type === "image" && supportsMediaCapability(item, "imageToImage"));
     if (!models.value.some(item => JSON.stringify([item.providerId, item.modelId]) === props.settings.model)) {
-      const choice = models.value[0];
+      const choice = models.value.find(item => item.providerId === "suanli");
       props.settings.model = choice ? JSON.stringify([choice.providerId, choice.modelId]) : "";
     }
   } catch (error) { if (!disposed) showNodeError(error, "模型读取失败"); }

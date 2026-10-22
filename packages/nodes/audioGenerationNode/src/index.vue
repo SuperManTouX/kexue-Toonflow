@@ -33,14 +33,14 @@
         <promptInput v-else v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" placeholder="描述您想要的音频效果或输入待朗读文本" expandable />
         <div class="promptFooter">
           <el-select
-            v-model="data.model"
+            v-model="visibleModel"
             class="modelSelect"
             filterable
             :loading="modelsLoading"
             :disabled="busy"
             placeholder="选择模型"
             aria-label="音频生成模型"
-            noDataText="请先在设置中添加音频模型"
+            noDataText="请先登录 SXWZ 算力"
             placement="top-start"
             @visible-change="visible => visible && loadModels().catch(error => showNodeError(error, '模型读取失败'))">
             <template #prefix><icon-music-bolt :size="17" /></template>
@@ -48,7 +48,7 @@
               <el-option v-for="item in provider.models" :key="item.modelId" :label="item.label" :value="JSON.stringify([item.providerId, item.modelId])" />
             </el-option-group>
           </el-select>
-          <generationSettings v-if="selectedModel?.providerId !== 'suanli'" v-model:language="data.language" v-model:sampleRate="data.sampleRate" v-model:format="data.format" :disabled="busy || !selectedModel" />
+          <generationSettings v-if="selectedModel && selectedModel.providerId !== 'suanli'" v-model:language="data.language" v-model:sampleRate="data.sampleRate" v-model:format="data.format" :disabled="busy || !selectedModel" />
           <div class="generationActions">
             <mediaPrice v-if="generationInput && selectedModel?.providerId !== 'suanli'" :input="{ ...generationInput, mediaType: 'audio' }" :supported="selectedModel?.supportsPrice === true" />
             <el-button
@@ -71,7 +71,7 @@ import { computed, onMounted, onScopeDispose, ref, watch } from "vue";
 import { ElButton, ElCard, ElLoading, ElOption, ElOptionGroup, ElSelect } from "element-plus";
 import { IconArrowUp, IconGauge, IconMusicBolt, IconPlayerStop, IconScissors, IconTransfer } from "@tabler/icons-vue";
 import { getTargetValues, isTypeCompatible, nodeSkeleton, nodeTools, useNode, z, type NodeAudioRequest, type NodeHandle, type NodeInputValue, type NodeMediaModel } from "@toonflow/nodes-scaffold/runtime";
-import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
+import { findSuanliNodeModel, groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
 import { supportsSuanliImageReferences } from "@toonflow/node-shared/mediaCapability";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
 import { useNodeGeneration } from "@toonflow/node-shared/useNodeGeneration";
@@ -121,7 +121,8 @@ const generationState = useNodeGeneration(outputs, () => generationController?.a
 const { generating } = generationState;
 const busy = computed(() => generating.value || uploading.value || deleting.value || !!actions.value?.processing);
 watch(busy, value => { if (!value && modelsRefreshPending) void refreshProviderModels(); });
-const selectedModel = computed(() => models.value.find(item => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
+const selectedModel = computed(() => findSuanliNodeModel(models.value, data.value.model));
+const visibleModel = computed({ get: () => selectedModel.value ? data.value.model : "", set: value => { data.value.model = value; } });
 const suanliForm = ref<InstanceType<typeof suanliParamsForm>>();
 const imageReferenceCount = computed(() => refList.value.filter(item => item.dataType === "IMAGE").length);
 const hasAudioReferences = computed(() => refList.value.some(item => item.dataType === "AUDIO"));
@@ -207,7 +208,7 @@ function loadModels() {
     models.value = items.filter(item => item.type === "audio");
     // ACT: 仅空配置选择默认模型，临时不可用的模型保持原选择，避免静默换供应商。
     if (!data.value.model) {
-      const first = models.value[0];
+      const first = models.value.find(item => item.providerId === "suanli");
       data.value.model = first ? JSON.stringify([first.providerId, first.modelId]) : "";
     }
   }).finally(() => {
@@ -290,7 +291,7 @@ nodeEvent.on("delete", async () => {
 function getConfig() {
   return {
     config: { providerId: selectedModel.value?.providerId ?? "", modelId: selectedModel.value?.modelId ?? "", language: data.value.language, sampleRate: data.value.sampleRate, format: data.value.format },
-    models: models.value,
+    models: models.value.filter(item => item.providerId === "suanli"),
     languages: languageOptions,
     sampleRates: sampleRateOptions,
     formats: formatOptions,
@@ -325,8 +326,8 @@ nodeTools.register({
     await loadModels();
     signal?.throwIfAborted();
     if (busy.value || disposed) throw new Error("音频正在处理或节点已关闭，请稍后修改配置");
-    const choice = args.modelId === undefined ? selectedModel.value : models.value.find(item => item.providerId === args.providerId && item.modelId === args.modelId);
-    if (!choice) throw new Error("请选择 getConfig 返回的有效音频模型");
+    const choice = args.modelId === undefined ? selectedModel.value : models.value.find(item => item.providerId === "suanli" && item.providerId === args.providerId && item.modelId === args.modelId);
+    if (!choice) throw new Error("请选择 getConfig 返回的有效 SXWZ 算力音频模型");
     if (args.language !== undefined && !languageOptions.some(item => item.value === args.language)) throw new Error("请选择 getConfig 返回的有效语种");
     if (args.sampleRate !== undefined && !sampleRateOptions.includes(args.sampleRate)) throw new Error("请选择 getConfig 返回的有效采样率");
     if (args.format !== undefined && !formatOptions.includes(args.format)) throw new Error("请选择 getConfig 返回的有效输出格式");

@@ -63,14 +63,14 @@
         <div class="promptFooter">
           <el-select
             v-if="editor?.mode !== 'inpaint'"
-            v-model="data.model"
+            v-model="visibleModel"
             class="modelSelect"
             filterable
             :loading="modelsLoading"
             :disabled="generating || deleting"
             placeholder="选择模型"
             aria-label="生成模型"
-            noDataText="请先在设置中添加图片模型"
+            noDataText="请先登录 SXWZ 算力"
             placement="top-start"
             @visible-change="(visible) => visible && loadModels().catch((error) => showNodeError(error, '模型读取失败'))">
             <template #prefix><icon-sparkles :size="17" /></template>
@@ -83,7 +83,7 @@
             </el-option-group>
           </el-select>
           <generationSettings
-            v-if="editor?.mode !== 'inpaint' && selectedModel?.providerId !== 'suanli'"
+            v-if="editor?.mode !== 'inpaint' && selectedModel && selectedModel.providerId !== 'suanli'"
             v-model:size="data.size"
             v-model:ratio="data.ratio"
             :sizes="sizeOptions"
@@ -91,7 +91,7 @@
             :disabled="generating || deleting || !selectedModel" />
           <el-button v-if="editor?.mode === 'inpaint'" class="confirmButton" type="primary" :icon="IconCheck" :loading="editor.busy" :disabled="deleting || uploading || !generationPrompt" @click="confirmInpaint().catch(error => showNodeError(error, '重绘节点创建失败'))">确认</el-button>
           <div v-else class="generationActions">
-            <mediaPrice v-if="priceInput && selectedModel?.providerId !== 'suanli'" :input="{ ...priceInput, mediaType: 'image' }" :supported="selectedModel?.supportsPrice === true" />
+            <mediaPrice v-if="priceInput && selectedModel && selectedModel.providerId !== 'suanli'" :input="{ ...priceInput, mediaType: 'image' }" :supported="selectedModel.supportsPrice === true" />
             <el-button
               class="sendButton"
               :icon="generating ? IconPlayerStop : IconArrowUp"
@@ -121,7 +121,7 @@ import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from "vue";
 import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElImageViewer } from "element-plus";
 import { IconCheck, IconPhotoAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconLayoutGrid, IconBrush, IconPencil, IconSun, IconCameraRotate, IconPanoramaHorizontal, IconChevronDown } from "@tabler/icons-vue";
 import { nodeSkeleton, nodeTools, useNode, z, type NodeMediaModel, type NodeImageRequest, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
-import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
+import { findSuanliNodeModel, groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
 import { supportsMediaCapability, supportsSuanliImageReferences } from "@toonflow/node-shared/mediaCapability";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
 import { useNodeGeneration } from "@toonflow/node-shared/useNodeGeneration";
@@ -188,7 +188,8 @@ let generation: Promise<void> | undefined;
 let modelsRequest: Promise<void> | undefined;
 const imageCapability = computed(() => data.value.inpaint || refList.value.some(item => item.dataType === "IMAGE") ? "imageToImage" : "textToImage");
 const availableModels = computed(() => models.value.filter(item => supportsMediaCapability(item, imageCapability.value)));
-const selectedModel = computed(() => availableModels.value.find((item) => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
+const selectedModel = computed(() => findSuanliNodeModel(availableModels.value, data.value.model));
+const visibleModel = computed({ get: () => selectedModel.value ? data.value.model : "", set: value => { data.value.model = value; } });
 const suanliForm = ref<InstanceType<typeof suanliParamsForm>>();
 const imageReferenceCount = computed(() => refList.value.filter(item => item.dataType === "IMAGE").length);
 const suanliReferencesSupported = computed(() => {
@@ -220,7 +221,7 @@ watch(
 const modelGroups = computed(() => groupNodeModels(availableModels.value));
 watch([availableModels, () => data.value.model], ([choices, model]) => {
   if (!models.value.length || choices.some(item => JSON.stringify([item.providerId, item.modelId]) === model)) return;
-  const first = choices[0];
+  const first = choices.find(item => item.providerId === "suanli");
   if (first) data.value.model = JSON.stringify([first.providerId, first.modelId]);
 }, { flush: "sync" });
 const generationPrompt = computed(() =>
@@ -443,7 +444,7 @@ function getConfig() {
       size: data.value.size,
       ratio: data.value.ratio,
     },
-    models: availableModels.value,
+    models: availableModels.value.filter(item => item.providerId === "suanli"),
   };
 }
 
@@ -475,8 +476,8 @@ nodeTools.register({
     signal?.throwIfAborted();
     if (generating.value || deleting.value) throw new Error("节点正在生成或删除，请稍后修改配置");
     const choice = args.modelId === undefined ? selectedModel.value
-      : availableModels.value.find((item) => item.providerId === args.providerId && item.modelId === args.modelId);
-    if (!choice) throw new Error("请选择 getConfig 返回的有效图片模型");
+      : availableModels.value.find((item) => item.providerId === "suanli" && item.providerId === args.providerId && item.modelId === args.modelId);
+    if (!choice) throw new Error("请选择 getConfig 返回的有效 SXWZ 算力图片模型");
     const sizes = choice.imageSizes?.length ? choice.imageSizes : ["2K"];
     const ratios = choice.imageRatios?.length ? choice.imageRatios : ["16:9"];
     if (args.size !== undefined && !sizes.includes(args.size)) throw new Error(`当前模型不支持分辨率 ${args.size}，可选：${sizes.join("、")}`);

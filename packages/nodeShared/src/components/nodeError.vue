@@ -51,7 +51,8 @@ async function explainError() {
   const signal = AbortSignal.any([props.signal, AbortSignal.timeout(60000)]);
   try {
     models.value = await ai.getModels(signal);
-    if (!models.value.length) throw new Error("解释错误需要一个可用的文本模型。请先在设置 → 文本模型中添加，再重试 AI 解释。");
+    models.value = models.value.filter(model => model.providerId === "suanli");
+    if (!models.value.length) throw new Error("解释错误需要可用的 SXWZ 文本模型。请先登录 SXWZ 算力，再重试 AI 解释。");
     // ACT: 首次点击只展示模型选择，不猜测哪个供应商可用，也不自动轮询产生额外请求。
     const model = selectedModel.value;
     if (!model) {
