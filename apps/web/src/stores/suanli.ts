@@ -46,15 +46,12 @@ export const suanliModelChoices = computed(() => suanliModels.value
 export const agentModelChoices = suanliModelChoices;
 
 export const suanliModelGroups = computed(() => {
-  const groups = new Map<string, { id: string; label: string; models: { id: string; label: string; providerId: string }[] }>();
+  const models: { id: string; label: string; providerId: string }[] = [];
   for (const model of suanliModels.value) {
     if (!(model.platformCode === "ai_chat" || model.platformCode === "ai_coding") || model.kind !== "llm") continue;
-    const id = `suanli:${model.platformCode}`;
-    const group = groups.get(id) ?? { id, label: model.platformName, models: [] };
-    group.models.push({ id: model.modelRef, label: model.label, providerId: "suanli" });
-    groups.set(id, group);
+    models.push({ id: model.modelRef, label: model.label, providerId: "suanli" });
   }
-  return [...groups.values()];
+  return models.length ? [{ id: "suanli", label: "SXWZ算力", models }] : [];
 });
 
 export const agentModelGroups = suanliModelGroups;
