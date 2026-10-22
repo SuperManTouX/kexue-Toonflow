@@ -29,7 +29,7 @@
           <span v-if="suanliError" class="suanliError">{{ suanliError }}</span>
         </el-form-item>
         <el-form-item label="模型">
-          <el-select v-model="selectedModel" filterable :disabled="disabled" :teleported="false" placeholder="选择模型" aria-label="选择模型" noDataText="请先添加本地模型或登录 SXWZ 算力" @change="reasoningEffort = ''">
+          <el-select v-model="selectedModel" filterable :disabled="disabled" :teleported="false" placeholder="选择模型" aria-label="选择模型" noDataText="请先登录 SXWZ 算力" @change="reasoningEffort = ''">
             <template #prefix><modelIcon v-if="selectedModelChoice" :model="selectedModelChoice.modelId" :size="18" /></template>
             <el-option-group v-for="provider in modelGroups" :key="provider.id" :label="provider.label">
               <el-option v-for="model in provider.models" :key="model.id" :label="model.label" :value="JSON.stringify([model.providerId ?? provider.id, model.id])">
@@ -73,7 +73,7 @@ const modelGroups = agentModelGroups;
 const selectedModelChoice = computed(() => agentModelChoices.value.find(item => item.value === selectedModel.value));
 const reasoningLabel = computed(() => reasoningOptions.find(item => item.value === reasoningEffort.value)?.label ?? "默认");
 watch(agentModelChoices, items => {
-  if (!selectedModel.value) selectedModel.value = items[0]?.value ?? "";
+  if (!items.some(item => item.value === selectedModel.value)) selectedModel.value = items[0]?.value ?? "";
 }, { immediate: true });
 watch(() => !props.active || props.disabled, close => { if (close) visible.value = false; });
 watch(visible, open => { if (open && suanliAvailable) void loadSuanliStatus().catch(() => {}); });

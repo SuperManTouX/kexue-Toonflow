@@ -7,7 +7,7 @@
       </el-form-item>
       <el-form-item label="文本模型">
         <el-select v-model="selectedModel" placeholder="选择团队使用的文本模型" filterable style="width: 100%">
-          <el-option v-for="model in modelChoices" :key="model.value" :value="model.value" :label="model.label" />
+          <el-option v-for="model in agentModelChoices" :key="model.value" :value="model.value" :label="model.label" />
         </el-select>
       </el-form-item>
       <el-form-item v-if="url" label="服务地址"><el-input :modelValue="url" dir="ltr" readonly /></el-form-item>
@@ -24,10 +24,10 @@
 
 <script setup lang="ts">
 import axios from "axios";
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import workspacePicker from "@/pages/home/workspacePicker.vue";
-import { modelChoices } from "@/stores/settings";
+import { agentModelChoices, loadSuanliStatus, suanliAvailable } from "@/stores/suanli";
 
 type A2aSettings = { enabled: boolean; directory: string; token?: string; url: string; providerId?: string; modelId?: string; thinkingLevel?: string };
 const emit = defineEmits<{ saved: []; closed: [] }>();
@@ -46,9 +46,13 @@ const headers = { "x-toonflow-workspace": "1" };
 const controller = new AbortController();
 onBeforeUnmount(() => controller.abort());
 onMounted(async () => {
+  if (suanliAvailable) await loadSuanliStatus().catch(() => {});
   try { await load(); }
   catch (cause) { error.value = errorMessage(cause); }
   finally { loading.value = false; }
+});
+watch(agentModelChoices, choices => {
+  if (!choices.some(item => item.value === selectedModel.value)) selectedModel.value = choices[0]?.value ?? "";
 });
 
 function errorMessage(cause: unknown) {
@@ -65,7 +69,8 @@ function applySettings(value: A2aSettings) {
   if (!value || typeof value.enabled !== "boolean" || typeof value.directory !== "string") throw new Error("A2A 设置格式错误");
   enabled.value = value.enabled;
   directory.value = value.directory;
-  selectedModel.value = value.providerId && value.modelId ? JSON.stringify([value.providerId, value.modelId]) : "";
+  const savedModel = value.providerId && value.modelId ? JSON.stringify([value.providerId, value.modelId]) : "";
+  selectedModel.value = agentModelChoices.value.some(item => item.value === savedModel) ? savedModel : agentModelChoices.value[0]?.value ?? "";
   thinkingLevel.value = value.thinkingLevel;
   token.value = value.token ?? "";
   url.value = value.url;
@@ -77,7 +82,7 @@ async function save() {
   saving.value = true;
   error.value = "";
   try {
-    const model = modelChoices.value.find(item => item.value === selectedModel.value);
+    const model = agentModelChoices.value.find(item => item.value === selectedModel.value);
     if (enabled.value && !model) throw new Error("请选择可用的文本模型");
     const { data } = await axios.put("/api/agents/a2a/save", {
       enabled: enabled.value, directory: directory.value.trim(), providerId: model?.providerId ?? "", modelId: model?.modelId ?? "",

@@ -1,7 +1,6 @@
 import type { NodeAiModel } from "@toonflow/nodes-scaffold/nodeAi";
 
 export function groupNodeModels<T extends Pick<NodeAiModel, "providerId" | "providerLabel">>(models: readonly T[]) {
-  return [...Map.groupBy(models, item => item.providerId)].map(([id, items]) => ({
-    id, label: id === "suanli" ? "SXWZ算力" : items[0]!.providerLabel, models: items,
-  })).sort((left, right) => Number(right.id === "tfRouter") - Number(left.id === "tfRouter"));
+  const suanliModels = models.filter(item => item.providerId === "suanli");
+  return suanliModels.length ? [{ id: "suanli", label: "SXWZ算力", models: suanliModels }] : [];
 }

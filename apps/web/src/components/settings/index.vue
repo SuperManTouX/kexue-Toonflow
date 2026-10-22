@@ -25,7 +25,7 @@
               <component
                 :is="activePanel.component"
                 v-bind="
-                  ['pluginMarket', 'languageModel', 'mediaModel', 'personalization', 'deviceLink'].includes(activePanel.id) ? { visible } : {}
+                  ['pluginMarket', 'personalization', 'deviceLink'].includes(activePanel.id) ? { visible } : {}
                 " />
             </keep-alive>
           </transition>
@@ -43,28 +43,18 @@ import { isMobile } from "@/lib/platform";
 import {
   IconPalette,
   IconSettings,
-  IconPhotoVideo,
   IconBuildingStore,
   IconInfoCircle,
   IconCode,
   IconShieldLock,
   IconPlugConnected,
   IconUserCog,
-  IconSubtitlesAi,
   IconDevices,
 } from "@tabler/icons-vue";
 
 const settingsPanels = [
   { id: "ui", label: "界面设置", icon: IconPalette, component: defineAsyncComponent(() => import("./panels/ui.vue")) },
   { id: "general", label: "常规配置", icon: IconSettings, component: defineAsyncComponent(() => import("./panels/general/index.vue")) },
-  {
-    id: "languageModel",
-    label: "文本模型",
-    icon: IconSubtitlesAi,
-    groupLabel: "模型",
-    component: defineAsyncComponent(() => import("./panels/languageModel/index.vue")),
-  },
-  { id: "mediaModel", label: "媒体模型", icon: IconPhotoVideo, component: defineAsyncComponent(() => import("./panels/mediaModel/index.vue")) },
   {
     id: "pluginMarket",
     label: "插件市场",

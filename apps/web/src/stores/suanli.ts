@@ -2,7 +2,6 @@ import { computed, ref } from "vue";
 import type { SuanliModel } from "@toonflow/server/suanli/types";
 import { appFetch } from "@/lib/auth";
 import { isDesktop, isRemoteConnection } from "@/lib/platform";
-import { customProviders, modelChoices } from "@/stores/settings";
 import { invalidateNodeModels } from "@toonflow/nodes-scaffold/nodeAi";
 
 type SuanliUser = { id: string; name: string };
@@ -44,7 +43,7 @@ export const suanliModelChoices = computed(() => suanliModels.value
     contextWindow: 262144, platformCode: model.platformCode, platformName: model.platformName,
   })));
 
-export const agentModelChoices = computed(() => [...modelChoices.value, ...suanliModelChoices.value]);
+export const agentModelChoices = suanliModelChoices;
 
 export const suanliModelGroups = computed(() => {
   const groups = new Map<string, { id: string; label: string; models: { id: string; label: string; providerId: string }[] }>();
@@ -58,11 +57,7 @@ export const suanliModelGroups = computed(() => {
   return [...groups.values()];
 });
 
-export const agentModelGroups = computed(() => [
-  ...customProviders.value.toSorted((left, right) => Number(right.id === "tfRouter") - Number(left.id === "tfRouter"))
-    .map(provider => ({ ...provider, models: provider.models.map(model => ({ ...model, providerId: provider.id })) })),
-  ...suanliModelGroups.value,
-]);
+export const agentModelGroups = suanliModelGroups;
 
 export async function refreshSuanliModels() {
   if (!suanliAvailable || !suanliUser.value) {

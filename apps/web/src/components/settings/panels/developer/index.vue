@@ -12,24 +12,10 @@
       <el-text v-if="requestError" type="danger" role="alert">{{ requestError }}</el-text>
       <div class="developerRow">
         <div class="toolDescription">
-          <h3>首次使用引导</h3>
-          <p>当前{{ hello.completed ? '已完成' : '未完成' }}。重置后打开引导页，保留已配置的模型。</p>
-        </div>
-        <el-button :icon="IconRefresh" :loading="resettingHello" :disabled="importingStorage || writingStorage" @click="resetHello">重置并打开引导页</el-button>
-      </div>
-      <div class="developerRow">
-        <div class="toolDescription">
           <h3>更新说明</h3>
           <p>打开当前版本的更新说明弹窗。</p>
         </div>
         <el-button :icon="IconFileText" :loading="openingUpdateBox" @click="openUpdateBox">查看更新说明</el-button>
-      </div>
-      <div v-if="canManageHost" class="developerRow">
-        <div class="toolDescription">
-          <h3>供应商开发工具</h3>
-          <p>授权读取本地供应商文件，调试生成接口与媒体结果。</p>
-        </div>
-        <el-button :icon="IconCode" @click="providerDebugVisible = true">开发供应商</el-button>
       </div>
       <div class="developerRow">
         <div class="toolDescription">
@@ -74,7 +60,7 @@
         <div class="developerRow">
           <div class="toolDescription">
             <h3>浏览器持久缓存</h3>
-            <p>管理当前站点的 localStorage。修改重新加载后生效；首次使用引导请通过上方按钮重置。导入会覆盖同名项，保留其他项。</p>
+            <p>管理当前站点的 localStorage。修改重新加载后生效。导入会覆盖同名项，保留其他项。</p>
           </div>
           <div class="storageToolbar">
             <input ref="storageFileInput" type="file" accept=".json,application/json" hidden @change="importStorage" />
@@ -108,7 +94,6 @@
         </div>
       </div>
     </div>
-    <providerDebugDialog v-if="providerDebugVisible" v-model="providerDebugVisible" />
     <systemPromptDialog v-if="systemPromptVisible" v-model="systemPromptVisible" />
     <updateBox v-if="updateBoxVisible" v-model="updateBoxVisible" :version="updateBoxBuild.version" :buildCode="updateBoxBuild.hash || translate('未提供')" />
     <div v-if="developerLocked" class="developerConfirm">
@@ -125,9 +110,7 @@ import { canManageHost } from "@/lib/auth";
 import { appFetch } from "@/lib/auth";
 import { locale, msg, translate, type MessageDescriptor } from "@toonflow/i18n/vue";
 import { computed, defineAsyncComponent, ref, watch } from "vue";
-import { useRouter } from "vue-router";
 import { useDeveloperStore } from "@/stores/developer";
-import { useHelloStore } from "@/stores/hello";
 import { saveSettings, settings } from "@/stores/settings";
 import { desktopUpdateSnapshot } from "@/stores/desktopUpdate";
 import type { updateSnapshot } from "@toonflow/server/desktop";
@@ -139,11 +122,6 @@ import axios from "axios";
 import { IconCode, IconTerminal2, IconFileUpload, IconFileText, IconDownload, IconRefresh, IconEdit, IconTrash } from "@tabler/icons-vue";
 
 const developerStore = useDeveloperStore();
-const hello = useHelloStore();
-const router = useRouter();
-const resettingHello = ref(false);
-const providerDebugDialog = defineAsyncComponent(() => import("./providerDebugDialog.vue"));
-const providerDebugVisible = ref(false);
 const systemPromptDialog = defineAsyncComponent(() => import("./systemPromptDialog.vue"));
 const systemPromptVisible = ref(false);
 const updateBox = defineAsyncComponent(() => import("@/components/updateBox.vue"));
@@ -195,20 +173,6 @@ async function saveCustomUpdateUrl() {
     updateUrlError.value = axios.isAxiosError<{ message?: string }>(error) ? error.response?.data?.message || error.message : error instanceof Error ? error.message : "保存更新源失败";
   } finally {
     savingUpdateUrl.value = false;
-  }
-}
-
-async function resetHello() {
-  if (storageBusy.value) return;
-  resettingHello.value = true;
-  try {
-    await hello.reset();
-    loadStorage();
-    await router.replace("/hello");
-  } catch {
-    ElMessage.error("重置引导失败，请重试");
-  } finally {
-    resettingHello.value = false;
   }
 }
 
