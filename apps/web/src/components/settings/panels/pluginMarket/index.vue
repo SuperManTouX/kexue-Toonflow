@@ -67,13 +67,13 @@
             showPassword
             autocomplete="off"
             :maxlength="8192"
-            placeholder="填写 TF-Router API Key"
-            aria-label="TF-Router API Key"
+            placeholder="填写插件市场 API Key"
+            aria-label="插件市场 API Key"
             :disabled="savingKey" />
           <el-button type="primary" nativeType="submit" :loading="savingKey" :disabled="!draftKey.trim()">保存并继续</el-button>
         </form>
         <el-text v-if="keyError" type="danger" size="small" role="alert">{{ keyError }}</el-text>
-        <el-link href="https://api.toonflow.net/" target="_blank" rel="noopener noreferrer" type="primary">前往 TF-Router 获取 API Key</el-link>
+        <el-link href="https://api.toonflow.net/" target="_blank" rel="noopener noreferrer" type="primary">前往插件市场获取 API Key</el-link>
       </el-card>
       <el-alert v-else-if="marketError" class="loadError" :title="marketError" type="error" :closable="false" showIcon>
         <el-button size="small" @click="marketRefreshKey++">重试</el-button>
@@ -435,7 +435,7 @@ watch(
     marketNeedsKey.value = !apiKey.value;
     if (marketNeedsKey.value) {
       marketTotal.value = 0;
-      marketError.value = "填写 TF-Router API Key 后即可浏览插件市场";
+      marketError.value = "填写插件市场 API Key 后即可浏览插件市场";
       marketLoading.value = false;
       return;
     }
@@ -495,7 +495,7 @@ watch(
         marketError.value = errorMessage(error, "加载插件市场失败，请重试");
         marketNeedsKey.value =
           marketError.value.includes("用户信息错误") || (axios.isAxiosError(error) && [401, 403].includes(error.response?.status ?? 0));
-        if (marketNeedsKey.value) marketError.value = "TF-Router 用户信息错误，请重新填写 API Key";
+        if (marketNeedsKey.value) marketError.value = "插件市场 API Key 无效，请重新填写";
       }
     } finally {
       if (!controller.signal.aborted) marketLoading.value = false;
@@ -556,7 +556,7 @@ async function saveMarketKey() {
     .trim();
   if (savingKey.value) return;
   if (!key) {
-    keyError.value = "请输入有效的 TF-Router API Key";
+    keyError.value = "请输入有效的插件市场 API Key";
     return;
   }
   const previousKey = apiKey.value;
@@ -573,14 +573,14 @@ async function saveMarketKey() {
       if (!Array.isArray(providers)) throw new Error("文本模型配置格式无效");
       const index = providers.findIndex((item) => typeof item?.id === "string" && isTfRouterProvider(item));
       if (index < 0 && providers.some((item) => typeof item?.id === "string" && item.id.toLowerCase() === tfRouter.id.toLowerCase())) {
-        throw new Error("存在同名的非官方 TF-router 供应商，请先在文本模型中修改其 ID");
+        throw new Error("插件市场配置与现有设置冲突，请联系管理员处理");
       }
       const { id, label, icon, version, apiUrl, protocol, models } = tfRouter;
       const configs = current.mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
       if (configs !== undefined && (!configs || typeof configs !== "object" || Array.isArray(configs))) throw new Error("媒体供应商配置格式无效");
       const mediaConfig = configs?.tfRouter;
       if (mediaConfig !== undefined && (!mediaConfig || typeof mediaConfig !== "object" || Array.isArray(mediaConfig)))
-        throw new Error("TF-router 媒体配置格式无效");
+        throw new Error("插件市场配置格式无效");
       return {
         customProviders:
           index < 0
