@@ -72,14 +72,11 @@ git clone https://github.com/HBAI-Ltd/Toonflow-app.git
 cd Toonflow-app
 bun install
 
-# 首次开发或修改插件后，构建节点和工具并同步到 data/
-bun run dev:plugins
-
-# 同时启动 Web 与业务 Server
-EXTERNAL_TOKEN_VERIFICATION_URL=https://sxwz.xueai.art/api/login/validateToken bun run dev
+# 默认启动桌面开发模式；Linux 使用浏览器进行桌面桥接联调
+bun run dev
 ```
 
-Windows PowerShell 可先执行 `$env:EXTERNAL_TOKEN_VERIFICATION_URL="https://sxwz.xueai.art/api/login/validateToken"`，再运行 `bun run dev`。打开 `http://localhost:5173`。独立 Server 默认监听 `3000`，Web 开发服务会代理 API 请求。`dev` 会并行启动 Web 与 Server，并在其中一个进程退出时停止另一个；它不自动构建或同步插件，因此首次启动需要上面的 `dev:plugins` 步骤。也可把验证地址写入仓库根目录 `.env`。
+Linux 下 `dev` 会通过浏览器启动桌面桥接联调模式，并使用 `data/workspaces/linuxDevWorkspace`；Windows 和 macOS 启动原生桌面应用。Linux 首次使用或修改插件后，可先运行 `bun run dev:plugins` 同步插件。若需单独启动普通 Web/Server 联调栈，在 Linux/macOS 运行 `EXTERNAL_TOKEN_VERIFICATION_URL=https://sxwz.xueai.art/api/login/validateToken bun scripts/devStack.ts`；PowerShell 可先设置 `$env:EXTERNAL_TOKEN_VERIFICATION_URL`，再运行 `bun scripts/devStack.ts`。该模式打开 `http://localhost:5173`，Server 默认监听 `3000`。
 
 ### 常用命令
 
@@ -87,10 +84,12 @@ Windows PowerShell 可先执行 `$env:EXTERNAL_TOKEN_VERIFICATION_URL="https://s
 
 | 命令 | 用途 |
 | --- | --- |
+| `bun run dev` | 默认开发入口，等同于 `dev:desktop`；Linux 使用浏览器桌面桥接联调，Windows/macOS 启动原生应用。 |
+| `bun scripts/devStack.ts` | 单独启动普通 Web 与业务 Server；需要设置 `EXTERNAL_TOKEN_VERIFICATION_URL`。 |
 | `bun run dev:web` | 单独启动 Web 开发服务。 |
 | `bun run dev:server` | 单独启动业务 Server。 |
 | `bun run dev:plugins` | 构建节点和工具，并同步到开发数据目录。 |
-| `bun run dev:desktop` | 同步开发插件、构建 Web，并启动桌面应用。 |
+| `bun run dev:desktop` | 启动桌面开发模式；Linux 使用浏览器桌面桥接联调，Windows/macOS 启动原生应用。 |
 | `bun run build` | 构建工具、Web、Server、MCP，并输出技能和提供方文件。 |
 | `bun run build:server` | 构建独立部署所需的节点、工具、Web、Server、MCP、技能和提供方，支持 Linux。 |
 | `bun run build:nodes` | 构建节点到 `build/nodes/`，不写入 `data/nodes/`。 |

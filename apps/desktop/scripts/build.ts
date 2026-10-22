@@ -15,6 +15,17 @@ if (mode === "typecheck") {
   await $`${process.execPath} run tsc --project ${isIntelMac ? "compat/macIntel/tsconfig.json" : "apps/desktop/tsconfig.json"}`.cwd(projectDir);
   process.exit(0);
 }
+if (mode === "dev" && process.platform === "linux") {
+  const child = Bun.spawn([process.execPath, resolve(projectDir, "scripts/devStack.ts"), "desktop"], {
+    cwd: projectDir,
+    env: process.env,
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  process.exitCode = await child.exited;
+  process.exit();
+}
 if (!(isMac && ["x64", "arm64"].includes(process.arch)) && !(process.platform === "win32" && process.arch === "x64")) {
   throw new Error("桌面构建需要 Windows x64 或 macOS x64/arm64 环境。");
 }

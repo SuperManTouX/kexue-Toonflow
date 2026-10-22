@@ -116,6 +116,7 @@ import { createPastedTextFile, readTextAttachment } from "@/components/agent/tex
 import type { AgentAttachment } from "@/components/agent/types";
 import logoUrl from "@toonflow/assets/logo.svg";
 import { useWorkspaceStore, type Project } from "@/stores/workspace";
+import { isDesktop } from "@/lib/platform";
 import { hasDesktopUpdate } from "@/stores/desktopUpdate";
 import { deviceHubEnabled, mobileConnection, mobileConnectionLabel } from "@/lib/mobile";
 import useWorkspaceFiles from "@/lib/workspaceFiles";
@@ -141,6 +142,7 @@ let attachmentDragDepth = 0;
 const workspaceStore = useWorkspaceStore();
 const { project, projectList } = storeToRefs(workspaceStore);
 const workspaceDirectory = ref(project.value?.directory ?? "");
+const linuxDevWorkspaceDirectory = import.meta.env.VITE_TOONFLOW_DEV_WORKSPACE_DIR;
 const placeholderPhrases = [
   "描述你想创作的内容，让灵感从这里开始…",
   "把一个故事灵感，变成一段精彩的短片…",
@@ -159,6 +161,15 @@ onMounted(() => {
   window.addEventListener("dragend", clearAttachmentDrag, true);
   window.addEventListener("drop", clearAttachmentDrag, true);
   window.addEventListener("blur", clearAttachmentDrag);
+  const currentUrl = new URL(window.location.href);
+  if (import.meta.env.DEV && isDesktop && linuxDevWorkspaceDirectory
+    && currentUrl.searchParams.get("linuxDevWorkspace") === "1") {
+    currentUrl.searchParams.delete("linuxDevWorkspace");
+    window.history.replaceState(window.history.state, "", `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
+    if (!project.value || project.value.directory === linuxDevWorkspaceDirectory) {
+      void openProject({ directory: linuxDevWorkspaceDirectory, name: "linuxDevWorkspace", lastOpenedAt: 0 });
+    }
+  }
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   let phraseIndex = 0;
   watch([() => !!prompt.value, locale], ([hasInput], _previous, onCleanup) => {

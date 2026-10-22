@@ -1,6 +1,9 @@
 import { resolve } from "node:path";
+import { mkdir, writeAtomic } from "@toonflow/file";
 import { createApp } from "./app";
 import { canManageHost } from "./lib/userContext";
+import { setRuntimeHost } from "./lib/platform";
+import createLinuxDevRuntime from "./utils/desktop/linuxDevRuntime";
 import config from "../../../electrobun.config";
 
 const startTime = Date.now();
@@ -9,8 +12,24 @@ const realPort = 3000;
 const fromSource = import.meta.path.endsWith(".ts");
 const appDirectory = resolve(import.meta.dirname, fromSource ? "../../.." : "../..");
 const dataDirectory = process.env.TOONFLOW_DATA_DIR ?? resolve(appDirectory, "data");
+const desktopWebDevelopment = process.env.NODE_ENV === "dev" && process.env.TOONFLOW_DEV_DESKTOP_WEB === "1";
+if (desktopWebDevelopment) setRuntimeHost("desktop");
+const linuxDevWorkspaceDirectory = desktopWebDevelopment && process.platform === "linux"
+  ? process.env.TOONFLOW_DEV_WORKSPACE_DIR ?? resolve(appDirectory, "data/workspaces/linuxDevWorkspace")
+  : undefined;
+if (linuxDevWorkspaceDirectory) {
+  await mkdir(linuxDevWorkspaceDirectory, { recursive: true });
+  await writeAtomic(resolve(linuxDevWorkspaceDirectory, "画布1.json"), JSON.stringify({
+    toonflowCanvas: true,
+    nodes: [],
+    edges: [],
+    viewport: { x: 0, y: 0, zoom: 1 },
+  }), { exclusive: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "EEXIST") throw error;
+  });
+}
 const app = await createApp({
-  authMode: "sxwz",
+  authMode: desktopWebDevelopment ? "local" : "sxwz",
   webRoot: resolve(appDirectory, "build/web"),
   appVersion: config.app.version,
   dataDirectory,
@@ -22,6 +41,7 @@ const app = await createApp({
   providersRoot: resolve(appDirectory, fromSource ? "packages/providers/src" : "build/providers"),
   skillsRoot: resolve(appDirectory, fromSource ? "packages/skills" : "build/skills"),
 });
+if (desktopWebDevelopment) app.locals.desktop = createLinuxDevRuntime(config.app.version);
 const { initializeMcpRuntime } = await import("./utils/mcp/runtime");
 const { startMobileLinkRuntime } = await import("./utils/mobileLink");
 app.listen(realPort, async () => {
