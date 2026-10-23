@@ -73,7 +73,7 @@ export async function getAgentConfiguredModel(providerId: string, modelId: strin
   const session = getSuanliSession();
   if (!session) throw Object.assign(new Error("请先登录 SXWZ 算力账号"), { status: 401 });
   const suanliModel = await getSuanliModelByRef(modelId);
-  if (!(suanliModel.platformCode === "ai_chat" || suanliModel.platformCode === "ai_coding") || suanliModel.kind !== "llm") {
+  if (suanliModel.kind.toLowerCase() !== "llm" && suanliModel.category?.toLowerCase() !== "llm") {
     throw Object.assign(new Error("所选算力模型暂不支持文本 Agent"), { status: 400 });
   }
   const current = getSuanliSession();

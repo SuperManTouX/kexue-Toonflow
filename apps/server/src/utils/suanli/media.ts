@@ -3,7 +3,7 @@ import { getSuanliSession } from "./auth";
 import { requestSuanliJson } from "./client";
 import { recordSuanliFailure } from "./log";
 import type { SuanliMediaParam, SuanliMediaTemplate } from "./types";
-import { getSuanliModelByRef } from "./models";
+import { getSuanliModelByRef, getSuanliModelMediaTypes } from "./models";
 
 const baseParam = {
   name: z.string().trim().min(1).max(128),
@@ -149,11 +149,9 @@ function recordTemplateFieldFailure(
     template: {
       modelRef: model.modelRef,
       modelId: model.modelId,
-      expectedPlatformId: model.platformCode,
+      catalogPlatformCode: model.platformCode,
       actualModelId: model.modelId,
-      actualPlatformId: model.platformCode,
       modelIdMatches: true,
-      platformIdMatches: true,
       validationIssues: [{ path, code, ...(receivedType ? { receivedType } : {}) }],
     },
   });
@@ -187,9 +185,7 @@ function copyMediaTemplate(template: SuanliMediaTemplate): SuanliMediaTemplate {
 
 export async function readSuanliMediaTemplate(modelRef: string) {
   const model = await getSuanliModelByRef(modelRef);
-  const mediaTypes = { ai_painting_talk: "image", ai_video_talk: "video", ai_music_talk: "audio" } as const;
-  const expectedCategory = mediaTypes[model.platformCode as keyof typeof mediaTypes];
-  if (!expectedCategory || model.kind.toLowerCase() !== "task" || model.category !== expectedCategory) {
+  if (!getSuanliModelMediaTypes(model).length) {
     throw failure("所选算力模型不是媒体模型", 400);
   }
   const session = getSuanliSession();
@@ -205,21 +201,19 @@ export async function readSuanliMediaTemplate(modelRef: string) {
   const actualModelId = typeof data.modelId === "string" ? data.modelId : undefined;
   const actualPlatformId = typeof data.platformId === "string" ? data.platformId : undefined;
   const modelIdMatches = actualModelId === model.modelId;
-  const platformIdMatches = actualPlatformId === model.platformCode;
-  if (!parsed.success || parsed.data.code !== 0 || !modelIdMatches || !platformIdMatches) {
+  if (!parsed.success || parsed.data.code !== 0 || !modelIdMatches) {
     await recordSuanliFailure({
       path: `models/${model.modelId}/config`, method: "GET", phase: "validation", reason: "invalid_template",
       status: 502, upstreamStatus: 200, durationMs: Date.now() - startedAt,
       template: {
         modelRef: model.modelRef,
         modelId: model.modelId,
-        expectedPlatformId: model.platformCode,
+        catalogPlatformCode: model.platformCode,
         ...(actualModelId !== undefined ? { actualModelId } : {}),
-        ...(actualPlatformId !== undefined ? { actualPlatformId } : {}),
+        ...(actualPlatformId !== undefined ? { templatePlatformId: actualPlatformId } : {}),
         ...(typeof envelope.code === "number" ? { upstreamCode: envelope.code } : {}),
         ...(typeof data.inputType === "string" ? { inputType: data.inputType } : {}),
         modelIdMatches,
-        platformIdMatches,
         ...(!parsed.success ? { validationIssues: summarizeValidationIssues(body, parsed.error.issues) } : {}),
       },
     });
@@ -233,7 +227,7 @@ export async function readSuanliMediaTemplate(modelRef: string) {
     ...(parsed.data.data.promptPlaceholder ? { promptPlaceholder: parsed.data.data.promptPlaceholder } : {}),
     params: parsed.data.data.params,
     canGenerate: parsed.data.data.inputType === "text"
-      || model.category === "image" && parsed.data.data.params.some(param => param.ui === "imageUpload" && param.name === "imageUrls"),
+      || parsed.data.data.params.some(param => param.ui === "imageUpload" && param.name === "imageUrls"),
   };
   const names = new Set<string>();
   for (const param of template.params) {
@@ -445,7 +439,7 @@ function taskResults(task: z.infer<typeof taskStateSchema>, mediaType: "image" |
 }
 
 export async function generateSuanliMedia(
-  mediaType: "image" | "video" | "audio",
+  mediaType: "image" | "video",
   modelRef: string,
   template: SuanliMediaTemplate,
   values: Record<string, unknown>,
@@ -456,8 +450,7 @@ export async function generateSuanliMedia(
 ) {
   signal?.throwIfAborted();
   const model = await getSuanliModelByRef(modelRef);
-  const expectedPlatforms = { image: "ai_painting_talk", video: "ai_video_talk", audio: "ai_music_talk" } as const;
-  if (model.platformCode !== expectedPlatforms[mediaType] || model.kind.toLowerCase() !== "task" || model.category !== mediaType) {
+  if (!getSuanliModelMediaTypes(model).includes(mediaType)) {
     throw fail("所选算力模型与当前媒体节点类型不匹配", 400);
   }
   const session = getSuanliSession();
@@ -465,14 +458,14 @@ export async function generateSuanliMedia(
   if (session.token !== expectedSession.token || JSON.stringify(session.identity) !== JSON.stringify(expectedSession.identity)) {
     throw fail("SXWZ 登录状态已变化，请重新读取模型目录", 409);
   }
-  if (template.modelId !== model.modelId || template.platformId !== model.platformCode) {
+  if (template.modelId !== model.modelId) {
     throw fail("所选算力模型与已读取参数模板不匹配", 400);
   }
   if (!template.canGenerate) throw fail("此模型当前需要上传参考素材或不支持纯文本输入", 400);
   const body = buildSuanliTaskBody(template, values, imageUploads);
   const requestBody = {
     model_id: model.modelId,
-    platform_code: "toonflow",
+    platform_code: model.platformCode,
     client_task_id: clientTaskId,
     body,
     sessionId: session.identity.sessionId,

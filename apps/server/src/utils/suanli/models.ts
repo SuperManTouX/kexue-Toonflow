@@ -13,18 +13,18 @@ export const suanliMediaCapabilityTags = {
   firstLastFrame: "首尾帧",
 } as const;
 
-const supportedPlatformCodes = ["ai_chat", "ai_coding", "ai_painting_talk", "ai_video_talk", "ai_music_talk"];
-const allowedMediaCapabilityTags = new Set<string>(Object.values(suanliMediaCapabilityTags));
+const suanliPlatformCode = "toonflow";
+const mediaTypeByCapabilityTag = new Map<string, "image" | "video">([
+  [suanliMediaCapabilityTags.textToImage, "image"],
+  [suanliMediaCapabilityTags.imageToImage, "image"],
+  [suanliMediaCapabilityTags.textToVideo, "video"],
+  [suanliMediaCapabilityTags.imageToVideo, "video"],
+  [suanliMediaCapabilityTags.firstLastFrame, "video"],
+]);
 const modelTagsSchema = z.union([
   z.array(z.string().max(128)).max(100),
   z.record(z.string().max(128), z.unknown()).refine(value => Object.keys(value).length <= 100),
 ]).nullish();
-const platformListSchema = z.object({
-  code: z.number().int(),
-  data: z.object({
-    platforms: z.array(z.object({ code: z.string().trim().min(1).max(128), name: z.string().trim().min(1).max(256) })).max(1000),
-  }),
-});
 const platformModelSchema = z.object({
   id: z.uuid(),
   name: z.string().trim().min(1).max(256),
@@ -80,20 +80,20 @@ function parseModelTags(value: z.infer<typeof modelTagsSchema>) {
   return [...new Set(tags)].slice(0, 100);
 }
 
-async function readPlatformModels(identity: SuanliIdentity, code: string, name: string, session: NonNullable<ReturnType<typeof getSuanliSession>>) {
+async function readPlatformModels(identity: SuanliIdentity, session: NonNullable<ReturnType<typeof getSuanliSession>>) {
   const startedAt = Date.now();
   const query = new URLSearchParams({ school_id: identity.schoolId });
   if (identity.collegeId) query.set("college_id", identity.collegeId);
-  const body = await requestSuanliJson<unknown>(`platforms/${encodeURIComponent(code)}/models?${query}`, {}, session);
+  const body = await requestSuanliJson<unknown>(`platforms/${suanliPlatformCode}/models?${query}`, {}, session);
   const parsed = platformModelListSchema.safeParse(body);
-  if (!parsed.success || parsed.data.code !== 0 || parsed.data.data.platform.code !== code) {
-    await recordSuanliFailure({ path: `platforms/${code}/models`, method: "GET", phase: "validation", reason: "invalid_model_catalog", status: 502, upstreamStatus: 200, durationMs: Date.now() - startedAt });
+  if (!parsed.success || parsed.data.code !== 0 || parsed.data.data.platform.code !== suanliPlatformCode) {
+    await recordSuanliFailure({ path: `platforms/${suanliPlatformCode}/models`, method: "GET", phase: "validation", reason: "invalid_model_catalog", status: 502, upstreamStatus: 200, durationMs: Date.now() - startedAt });
     throw failure("算力中台返回的平台模型列表格式无效", 502);
   }
   const seen = new Set<string>();
   for (const model of parsed.data.data.models) {
     if (seen.has(model.id)) {
-      await recordSuanliFailure({ path: `platforms/${code}/models`, method: "GET", phase: "validation", reason: "duplicate_model", status: 502, upstreamStatus: 200, durationMs: Date.now() - startedAt });
+      await recordSuanliFailure({ path: `platforms/${suanliPlatformCode}/models`, method: "GET", phase: "validation", reason: "duplicate_model", status: 502, upstreamStatus: 200, durationMs: Date.now() - startedAt });
       throw failure("算力中台返回了重复模型", 502);
     }
     seen.add(model.id);
@@ -101,17 +101,17 @@ async function readPlatformModels(identity: SuanliIdentity, code: string, name: 
   return parsed.data.data.models.flatMap(model => {
     const tags = parseModelTags(model.tags);
     const isTextModel = model.kind.toLowerCase() === "llm" || model.category?.toLowerCase() === "llm";
-    const mediaTags = tags?.filter(tag => allowedMediaCapabilityTags.has(tag));
+    const mediaTags = tags?.filter(tag => mediaTypeByCapabilityTag.has(tag));
     if (!isTextModel && !mediaTags?.length) return [];
     return [{
       providerId: "suanli" as const,
-      modelRef: `${code}:${model.id}`,
+      modelRef: `${parsed.data.data.platform.code}:${model.id}`,
       modelId: model.id,
       label: model.display_name?.trim() || model.name,
       kind: model.kind,
       ...(model.category ? { category: model.category } : {}),
-      platformCode: code,
-      platformName: name,
+      platformCode: parsed.data.data.platform.code,
+      platformName: parsed.data.data.platform.name,
       ...(model.billing_unit ? { billingUnit: model.billing_unit } : {}),
       ...(model.billing_mode ? { billingMode: model.billing_mode } : {}),
       ...(model.unit_price != null ? { unitPrice: model.unit_price } : {}),
@@ -135,20 +135,7 @@ export async function listSuanliModels() {
   const identity = session.identity;
   const key = identityCacheKey(identity);
   if (cache?.key === key && cache.expiresAt > Date.now()) return cache.models.map(model => ({ ...model }));
-  const startedAt = Date.now();
-  const body = await requestSuanliJson<unknown>("platforms/list", {}, session);
-  const parsed = platformListSchema.safeParse(body);
-  if (!parsed.success || parsed.data.code !== 0) {
-    await recordSuanliFailure({ path: "platforms/list", method: "GET", phase: "validation", reason: "invalid_platform_catalog", status: 502, upstreamStatus: 200, durationMs: Date.now() - startedAt });
-    throw failure("算力中台返回的平台列表格式无效", 502);
-  }
-  const platformMap = new Map(parsed.data.data.platforms.map(platform => [platform.code, platform.name]));
-  if (platformMap.size !== parsed.data.data.platforms.length) {
-    await recordSuanliFailure({ path: "platforms/list", method: "GET", phase: "validation", reason: "duplicate_platform", status: 502, upstreamStatus: 200, durationMs: Date.now() - startedAt });
-    throw failure("算力中台返回了重复平台", 502);
-  }
-  const enabled = supportedPlatformCodes.filter(code => platformMap.has(code));
-  const models = (await Promise.all(enabled.map(code => readPlatformModels(identity, code, platformMap.get(code)!, session)))).flat();
+  const models = await readPlatformModels(identity, session);
   cache = { key, expiresAt: Date.now() + cacheLifetime, models };
   return models.map(model => ({ ...model }));
 }
@@ -157,10 +144,20 @@ function parseModelRef(value: string) {
   const separator = value.indexOf(":");
   const platformCode = value.slice(0, separator);
   const modelId = value.slice(separator + 1);
-  if (separator <= 0 || !supportedPlatformCodes.includes(platformCode) || !z.uuid().safeParse(modelId).success) {
+  if (separator <= 0 || platformCode !== suanliPlatformCode || !z.uuid().safeParse(modelId).success) {
     throw failure("算力模型标识无效", 400);
   }
   return { platformCode, modelId };
+}
+
+export function getSuanliModelMediaTypes(model: Pick<SuanliModel, "kind" | "tags">) {
+  if (model.kind.toLowerCase() !== "task") return [];
+  const mediaTypes = new Set<"image" | "video">();
+  for (const tag of model.tags ?? []) {
+    const mediaType = mediaTypeByCapabilityTag.get(tag);
+    if (mediaType) mediaTypes.add(mediaType);
+  }
+  return [...mediaTypes];
 }
 
 export async function getSuanliModelByRef(modelRef: string) {

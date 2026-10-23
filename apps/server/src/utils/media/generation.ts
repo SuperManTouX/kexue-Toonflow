@@ -10,7 +10,7 @@ import { beginGeneration, getProviderPrice } from "@/utils/media/billing";
 import { detectMimeType, readPriceReference } from "@/utils/media/priceReference";
 import { getSuanliSession } from "@/utils/suanli/auth";
 import { buildSuanliTaskBody, generateSuanliMedia, readSuanliMediaTemplate } from "@/utils/suanli/media";
-import { getSuanliModelByRef, listSuanliModels, suanliMediaCapabilityTags } from "@/utils/suanli/models";
+import { getSuanliModelByRef, getSuanliModelMediaTypes, listSuanliModels, suanliMediaCapabilityTags } from "@/utils/suanli/models";
 
 const maxMediaSize = 100 * 1024 * 1024;
 const mediaExtensions: Record<string, string> = {
@@ -49,17 +49,16 @@ export async function listMediaModels(): Promise<MediaModel[]> {
     } as MediaModel];
   }));
   if (!getSuanliSession()) return localModels;
-  const mediaTypes = { ai_painting_talk: "image", ai_video_talk: "video", ai_music_talk: "audio" } as const;
   const suanliModels = (await listSuanliModels()).flatMap(model => {
-    const type = mediaTypes[model.platformCode as keyof typeof mediaTypes];
-    if (model.kind.toLowerCase() !== "task" || !type || model.category !== type) return [];
-    const mode = type === "video" ? [
-      ...(model.tags?.includes(suanliMediaCapabilityTags.textToVideo) ? ["text"] : []),
-      ...(model.tags?.includes(suanliMediaCapabilityTags.imageToVideo) ? ["singleImage"] : []),
-      ...(model.tags?.includes(suanliMediaCapabilityTags.firstLastFrame) ? ["startEndRequired"] : []),
-    ] : undefined;
-    return [{ providerId: "suanli", providerLabel: model.platformName, modelId: model.modelRef, label: model.label, type,
-      ...(model.tags ? { tags: [...model.tags] } : {}), ...(mode?.length ? { mode } : {}) } satisfies MediaModel];
+    return getSuanliModelMediaTypes(model).map(type => {
+      const mode = type === "video" ? [
+        ...(model.tags?.includes(suanliMediaCapabilityTags.textToVideo) ? ["text"] : []),
+        ...(model.tags?.includes(suanliMediaCapabilityTags.imageToVideo) ? ["singleImage"] : []),
+        ...(model.tags?.includes(suanliMediaCapabilityTags.firstLastFrame) ? ["startEndRequired"] : []),
+      ] : undefined;
+      return { providerId: "suanli", providerLabel: "SXWZ算力", modelId: model.modelRef, label: model.label, type,
+        ...(model.tags ? { tags: [...model.tags] } : {}), ...(mode?.length ? { mode } : {}) } satisfies MediaModel;
+    });
   });
   return [...localModels, ...suanliModels];
 }
@@ -134,13 +133,9 @@ export async function readReference(
 
 const maxSuanliTaskBodyBytes = 100 * 1024 * 1024;
 
-function suanliImageReferences(mediaType: "image" | "video" | "audio", request: MediaGenerationRequest) {
+function suanliImageReferences(mediaType: "image" | "video", request: MediaGenerationRequest) {
   if (mediaType === "image") {
     if (request.videos?.length || request.audios?.length || request.firstFrame || request.lastFrame) invalid("图片模型只接受图片引用");
-    return request.images ?? [];
-  }
-  if (mediaType === "audio") {
-    if (request.videos?.length || request.audios?.length || request.firstFrame || request.lastFrame) invalid("音频模型当前只支持图片引用");
     return request.images ?? [];
   }
   if (request.videos?.length || request.audios?.length) invalid("视频模型当前不支持视频或音频引用");
@@ -150,14 +145,14 @@ function suanliImageReferences(mediaType: "image" | "video" | "audio", request: 
 }
 
 function imageUploadBinding(modelRef: string, template: SuanliMediaTemplate, param: Extract<SuanliMediaParam, { ui: "imageUpload" }>) {
-  if (`${template.platformId}:${template.modelId}` !== modelRef) return undefined;
+  if (!modelRef.endsWith(`:${template.modelId}`)) return undefined;
   if (param.name === "imageUrls") return "images";
   return undefined;
 }
 
 async function prepareSuanliImageUploads(
   directory: string,
-  mediaType: "image" | "video" | "audio",
+  mediaType: "image" | "video",
   request: MediaGenerationRequest,
   modelRef: string,
   template: SuanliMediaTemplate,
@@ -339,6 +334,7 @@ export async function generateMedia(
     if (request.providerId === "suanli") {
       const suanliValues = request.suanliValues;
       if (!suanliValues || suanliValues.modelRef !== request.modelId) invalid("请重新读取当前算力模型参数后再生成");
+      if (mediaType === "audio") invalid("当前 SXWZ 模型目录没有音频能力标签");
       const model = await getSuanliModelByRef(suanliValues.modelRef);
       const session = getSuanliSession();
       if (!session?.identity.sessionId) invalid("请先登录 SXWZ 算力账号");
@@ -350,7 +346,7 @@ export async function generateMedia(
       const clientTaskId = crypto.randomUUID();
       const baseRequestBody: Record<string, unknown> = {
         model_id: model.modelId,
-        platform_code: "toonflow",
+        platform_code: model.platformCode,
         client_task_id: clientTaskId,
         sessionId: session.identity.sessionId,
         ...(model.sourceType?.toLowerCase() === "school" ? { school_id: session.identity.schoolId } : {}),

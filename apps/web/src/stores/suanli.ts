@@ -37,10 +37,10 @@ async function readApiResponse<T>(path: string, init?: RequestInit) {
 }
 
 export const suanliModelChoices = computed(() => suanliModels.value
-  .filter(model => (model.platformCode === "ai_chat" || model.platformCode === "ai_coding") && model.kind === "llm")
+  .filter(model => model.kind.toLowerCase() === "llm" || model.category?.toLowerCase() === "llm")
   .map(model => ({
     value: JSON.stringify(["suanli", model.modelRef]), providerId: "suanli", modelId: model.modelRef, label: model.label,
-    contextWindow: 262144, platformCode: model.platformCode, platformName: model.platformName,
+    contextWindow: 262144,
   })));
 
 export const agentModelChoices = suanliModelChoices;
@@ -48,7 +48,7 @@ export const agentModelChoices = suanliModelChoices;
 export const suanliModelGroups = computed(() => {
   const models: { id: string; label: string; providerId: string }[] = [];
   for (const model of suanliModels.value) {
-    if (!(model.platformCode === "ai_chat" || model.platformCode === "ai_coding") || model.kind !== "llm") continue;
+    if (model.kind.toLowerCase() !== "llm" && model.category?.toLowerCase() !== "llm") continue;
     models.push({ id: model.modelRef, label: model.label, providerId: "suanli" });
   }
   return models.length ? [{ id: "suanli", label: "SXWZ算力", models }] : [];

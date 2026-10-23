@@ -38,9 +38,10 @@ export function supportsSuanliImageReferences(
   referenceCount: number,
   values: Record<string, unknown>,
 ) {
+  if (!modelRef.endsWith(`:${template.modelId}`)) return false;
   const uploadParams = template.params.filter(param => param.ui === "imageUpload");
   if (!uploadParams.length) return referenceCount === 0;
-  if (`${template.platformId}:${template.modelId}` !== modelRef || uploadParams.length !== 1) return false;
+  if (uploadParams.length !== 1) return false;
   const param = uploadParams[0]!;
   if (param.name !== "imageUrls") return false;
   const paramsByName = new Map(template.params.map(field => [field.name, field]));

@@ -4,7 +4,7 @@ import { getUserDataDirectory } from "@/lib/userContext";
 
 const maxLogBytes = 1024 * 1024;
 const retainedLogBytes = 512 * 1024;
-const safePlatforms = new Set(["ai_chat", "ai_coding", "ai_painting_talk", "ai_video_talk", "ai_music_talk"]);
+const safePlatforms = new Set(["toonflow"]);
 let writeQueue = Promise.resolve();
 
 export type SuanliFailureLog = {
@@ -19,13 +19,12 @@ export type SuanliFailureLog = {
   template?: {
     modelRef: string;
     modelId: string;
-    expectedPlatformId: string;
+    catalogPlatformCode: string;
     actualModelId?: string;
-    actualPlatformId?: string;
+    templatePlatformId?: string;
     upstreamCode?: number;
     inputType?: string;
     modelIdMatches: boolean;
-    platformIdMatches: boolean;
     validationIssues?: Array<{
       path: Array<string | number>;
       code: string;
@@ -38,7 +37,6 @@ export type SuanliFailureLog = {
 
 function safePath(value: string) {
   const path = value.split(/[?#]/, 1)[0]!.replace(/^\/+/, "").replace(/\/+$/, "");
-  if (path === "platforms/list") return path;
   const platformModels = path.match(/^platforms\/([^/]+)\/models$/);
   if (platformModels && safePlatforms.has(platformModels[1]!)) return `platforms/${platformModels[1]}/models`;
   const modelConfig = path.match(/^models\/([a-f\d-]{36})\/config$/i);
@@ -63,13 +61,12 @@ function safeTemplateDetails(value?: SuanliFailureLog["template"]) {
   return {
     modelRef: value.modelRef.slice(0, 256),
     modelId: value.modelId.slice(0, 128),
-    expectedPlatformId: value.expectedPlatformId.slice(0, 128),
+    catalogPlatformCode: value.catalogPlatformCode.slice(0, 128),
     ...(value.actualModelId !== undefined ? { actualModelId: value.actualModelId.slice(0, 128) } : {}),
-    ...(value.actualPlatformId !== undefined ? { actualPlatformId: value.actualPlatformId.slice(0, 128) } : {}),
+    ...(value.templatePlatformId !== undefined ? { templatePlatformId: value.templatePlatformId.slice(0, 128) } : {}),
     ...(value.upstreamCode !== undefined ? { upstreamCode: value.upstreamCode } : {}),
     ...(value.inputType !== undefined ? { inputType: value.inputType.slice(0, 128) } : {}),
     modelIdMatches: value.modelIdMatches,
-    platformIdMatches: value.platformIdMatches,
     ...(value.validationIssues?.length ? {
       validationIssues: value.validationIssues.slice(0, 100).map(issue => ({
         path: issue.path.slice(0, 24).map(part => typeof part === "number" ? part : part.slice(0, 128)),
