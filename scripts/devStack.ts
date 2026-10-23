@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 
 const desktopMode = process.argv[2] === "desktop";
+const devLanMode = process.env.TOONFLOW_DEV_LAN === "1";
 const appDirectory = resolve(import.meta.dirname, "..");
 const webPort = process.env.TOONFLOW_DEV_WEB_PORT || "5173";
 const serverPort = process.env.TOONFLOW_DEV_SERVER_PORT || "3000";
@@ -9,6 +10,10 @@ const linuxDevWorkspaceDirectory = desktopMode && process.platform === "linux"
   : undefined;
 if (process.argv.length > 3 || process.argv[2] && !desktopMode) {
   console.error("用法：bun scripts/devStack.ts [desktop]");
+  process.exit(1);
+}
+if (devLanMode && (!desktopMode || process.platform !== "linux")) {
+  console.error("TOONFLOW_DEV_LAN=1 仅支持 Linux 桌面桥接开发模式；请通过桌面开发启动器运行。");
   process.exit(1);
 }
 
@@ -31,6 +36,7 @@ const processes = services.map(service => ({
       ...process.env,
       ...service.environment,
       TOONFLOW_DEV_DESKTOP_WEB: desktopMode ? "1" : "0",
+      ...(devLanMode ? { TOONFLOW_DEV_LAN: "1" } : {}),
       ...(linuxDevWorkspaceDirectory ? {
         TOONFLOW_DEV_WORKSPACE_DIR: linuxDevWorkspaceDirectory,
         VITE_TOONFLOW_DEV_WORKSPACE_DIR: linuxDevWorkspaceDirectory,
