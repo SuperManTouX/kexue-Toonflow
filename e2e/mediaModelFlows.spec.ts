@@ -5,7 +5,7 @@ test.beforeEach(async ({ request }) => {
   await resetSxwzStub(request);
 });
 
-test("媒体模型设置可以打开，不触发整页重载", async ({ page }) => {
+test("设置不展示非 SXWZ 媒体供应商入口，且不触发整页重载", async ({ page }) => {
   let pageLoads = 0;
   page.on("load", () => pageLoads++);
   await openLinuxDevWorkspace(page);
@@ -13,9 +13,8 @@ test("媒体模型设置可以打开，不触发整页重载", async ({ page }) 
   await page.locator(".workspaceMenu").getByRole("button", { name: /设置/ }).click();
   const settingsDialog = page.getByRole("dialog", { name: "设置" });
   await expect(settingsDialog).toBeVisible();
-  await settingsDialog.getByRole("button", { name: "媒体模型" }).click();
-  await expect(settingsDialog.getByRole("heading", { name: "媒体模型" })).toBeVisible();
-  await expect(settingsDialog.getByRole("button", { name: "添加供应商" })).toBeVisible();
+  await expect(settingsDialog.getByRole("button", { name: "媒体模型" })).toHaveCount(0);
+  await expect(settingsDialog.getByText("TF-Router", { exact: true })).toHaveCount(0);
   expect(pageLoads).toBe(1);
   expect(page.url()).toContain("#/workspace");
 });
@@ -30,7 +29,7 @@ test("SXWZ 图片模型跨模板兼容参数 schema 并集", async ({ page }) =>
   const modelSelect = generatorNode.getByRole("combobox", { name: "生成模型" });
   await expect(modelSelect).toBeVisible();
   await modelSelect.click();
-  await expect(page.locator(".el-select-group__title", { hasText: "SXWZ算力" })).toBeVisible();
+  await expect(page.getByRole("listbox", { name: "生成模型" }).locator(".el-select-group__title")).toHaveText(["SXWZ算力"]);
   await page.getByRole("option", { name: "QwenImage2.0", exact: true }).click();
 
   await expect(generatorNode.getByText("提示词", { exact: true })).toBeVisible();
@@ -56,21 +55,12 @@ test("SXWZ 图片模型跨模板兼容参数 schema 并集", async ({ page }) =>
   await expect(generatorNode.getByText("反向提示词", { exact: true })).toBeVisible();
 });
 
-test("媒体模型供应商详情可打开编辑弹窗", async ({ page }) => {
+test("文本模型选择只展示 toonflow 目录中的 SXWZ 模型", async ({ page }) => {
   await openLinuxDevWorkspace(page);
-  await page.locator(".workspaceMenu").getByRole("button", { name: /设置/ }).click();
-  const settings = page.getByRole("dialog", { name: "设置" });
-  await settings.getByRole("button", { name: "媒体模型" }).click();
+  await loginSuanli(page);
 
-  const provider = settings.locator(".providerItem").filter({ hasText: "TF-Router" });
-  await expect(provider).toBeVisible();
-  await expect(provider).toContainText("个模型");
-  await provider.getByRole("button", { name: "编辑模型" }).click();
-
-  const editor = page.getByRole("dialog", { name: "编辑媒体供应商：TF-Router" });
-  await expect(editor).toBeVisible();
-  await expect(editor.getByText("模型配置", { exact: false })).toBeVisible();
-  await expect(editor.locator(".modelCard").first()).toBeVisible();
-  await editor.getByRole("button", { name: "取消" }).click();
-  await expect(editor).toBeHidden();
+  const modelButton = page.getByRole("button", { name: "模型与推理设置" });
+  await expect(modelButton).toContainText("Chat-E2E");
+  await expect(modelButton.getByRole("img", { name: /^toonflow:/ })).toBeVisible();
+  await expect(page.getByText("TF-Router", { exact: true })).toHaveCount(0);
 });

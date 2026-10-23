@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeAtomic } from "@toonflow/file";
+import { mkdir, mkdtemp, readdir, writeAtomic } from "@toonflow/file";
 import { defineConfig } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { createServer } from "node:net";
@@ -51,6 +51,16 @@ async function createTlsCertificate(directory: string) {
 }
 
 const listOnly = process.argv.includes("--list");
+if (!listOnly) {
+  const nodePackages = await readdir(join(appDirectory, "packages/nodes"), { withFileTypes: true });
+  for (const nodePackage of nodePackages.filter(entry => entry.isDirectory()).sort((left, right) => left.name.localeCompare(right.name))) {
+    await execFileAsync("bun", ["run", "--cwd", `packages/nodes/${nodePackage.name}`, "build"], {
+      cwd: appDirectory,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    });
+  }
+}
 const inheritedRun = !!process.env.TOONFLOW_E2E_TEMP_DIRECTORY
   && !!process.env.TOONFLOW_E2E_DATA_DIRECTORY
   && !!process.env.TOONFLOW_E2E_WORKSPACE_DIRECTORY

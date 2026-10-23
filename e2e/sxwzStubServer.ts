@@ -10,6 +10,7 @@ const invalidTemplateModelId = "d4c238f2-9661-4c82-95d7-5eb7ab4cc786";
 const timeoutTemplateModelId = "abfc7a4b-f42d-4b22-85f8-a6fdb3ce81d5";
 const videoModelId = "1c9496b2-4514-433c-9557-a7ed0df4a5aa";
 const audioModelId = "d90b34b0-1290-4d08-a1e2-75f6f8506d33";
+const chatModelId = "cb6a1c9c-fc2d-4d36-86ea-f2bf47d2c534";
 const hiddenDefault = "e2e-hidden-default-should-not-enter-diagnostics";
 const captchaImage = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZp8AAAAASUVORK5CYII=";
 const models = [
@@ -20,6 +21,7 @@ const models = [
   { id: timeoutTemplateModelId, name: "TimeoutTemplate-E2E", display_name: "TimeoutTemplate-E2E", kind: "task", category: "image", tags: ["文生图"] },
   { id: videoModelId, name: "Video-E2E", display_name: "Video-E2E", kind: "task", category: "video", tags: ["文生视频", "图生视频"] },
   { id: audioModelId, name: "Audio-E2E", display_name: "Audio-E2E", kind: "task", category: "audio", tags: ["音乐生成"] },
+  { id: chatModelId, name: "Chat-E2E", display_name: "Chat-E2E", kind: "llm", category: "llm", tags: ["聊天"] },
 ];
 
 type StubRequest = { method: string; path: string; kind: string; body?: unknown };
@@ -92,6 +94,7 @@ function imageTemplate(modelId: string, platformId: string, withUpload: boolean)
 const server = Bun.serve({
   hostname: host,
   port,
+  idleTimeout: 60,
   maxRequestBodySize: 110 * 1024 * 1024,
   async fetch(request) {
     const url = new URL(request.url);
@@ -128,22 +131,9 @@ const server = Bun.serve({
       requests.push({ method: request.method, path, kind: "validateToken" });
       return json(envelope({ userInfo: { userId: 7001, nickname: "E2E 用户", sessionId: "e2e-session", schoolId: 8001, eduStudent: { collegeId: 9001 } } }));
     }
-    if (path === "/suanli/v1/platforms/list" && request.method === "GET") {
-      requests.push({ method: request.method, path, kind: "platformList" });
-      return json({ code: 0, data: { platforms: [
-        { code: "ai_chat", name: "聊天模型" },
-        { code: "ai_painting_talk", name: "SXWZ算力" },
-        { code: "ai_video_talk", name: "SXWZ算力" },
-        { code: "ai_music_talk", name: "SXWZ算力" },
-      ] } });
-    }
-    if (/^\/suanli\/v1\/platforms\/[^/]+\/models$/.test(path) && request.method === "GET") {
-      const platformCode = path.split("/")[4];
+    if (path === "/suanli/v1/platforms/toonflow/models" && request.method === "GET") {
       requests.push({ method: request.method, path, kind: "platformModels" });
-      const platformModels = platformCode === "ai_chat" ? [{ id: randomUUID(), name: "Chat-E2E", kind: "llm", tags: ["聊天"] }]
-        : platformCode === "ai_painting_talk" ? models.slice(0, 5)
-          : platformCode === "ai_video_talk" ? [models[5]] : [models[6]];
-      return json({ code: 0, data: { platform: { code: platformCode, name: platformCode === "ai_chat" ? "聊天模型" : "SXWZ算力" }, models: platformModels } });
+      return json({ code: 0, data: { platform: { code: "toonflow", name: "Toonflow" }, models } });
     }
     const configMatch = path.match(/^\/suanli\/v1\/models\/([^/]+)\/config$/);
     if (configMatch && request.method === "GET") {

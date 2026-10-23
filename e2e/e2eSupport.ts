@@ -49,14 +49,14 @@ export async function loginSuanli(page: Page) {
 
 export async function openLinuxDevWorkspace(page: Page) {
   await page.goto("/?desktop=1&linuxDevWorkspace=1#/home");
-  await page.waitForURL(/#\/workspace$/, { timeout: 5000 }).catch(() => {});
-  if (!/#\/workspace$/.test(page.url())) {
-    const projectEntry = page.locator(".projectEntry").first();
-    await expect(projectEntry).toBeVisible();
-    await projectEntry.click();
-  }
-  await expect(page).toHaveURL(/#\/workspace$/);
-  await expect(page.getByRole("button", { name: "添加节点" })).toBeEnabled();
+  const exitProjectButton = page.getByRole("button", { name: "退出项目" });
+  const linuxProjectEntry = page.getByRole("button", { name: "打开项目 linuxDevWorkspace" });
+  await expect.poll(async () => await exitProjectButton.isVisible() || await linuxProjectEntry.isEnabled(), { timeout: 30000 }).toBeTruthy();
+  if (!await exitProjectButton.isVisible()) await linuxProjectEntry.click();
+  await expect(exitProjectButton).toBeVisible({ timeout: 30000 });
+  await expect(page).toHaveURL(/#\/workspace(?:$|[?&])/);
+  const addNodeButton = page.getByRole("button", { name: "添加节点" });
+  await expect(addNodeButton).toBeEnabled({ timeout: 30000 });
 }
 
 export async function createFreshCanvas(page: Page, name: string) {

@@ -43,7 +43,7 @@ test("图片编辑主链路上传本地图片并以 Base64 提交到 SXWZ，生�
   const canvas = page.locator('.canvas[aria-hidden="false"]');
   const canvasBox = await canvas.boundingBox();
   if (!canvasBox) throw new Error("画布不可见");
-  await canvas.dblclick({ position: { x: canvasBox.width * 0.34, y: canvasBox.height * 0.76 } });
+  await canvas.dblclick({ position: { x: canvasBox.width * 0.14, y: canvasBox.height * 0.22 } });
   await page.getByRole("menuitem", { name: "图片", exact: true }).click();
   const activeCanvas = page.locator(".canvasRuntime:not(.backgroundCanvas)");
   const imageNode = activeCanvas.locator(".vue-flow__node-remote-imageNode");
@@ -64,7 +64,7 @@ test("图片编辑主链路上传本地图片并以 Base64 提交到 SXWZ，生�
 
   const modelSelect = generatorNode.getByRole("combobox", { name: "生成模型" });
   await modelSelect.click();
-  await expect(page.locator(".el-select-group__title", { hasText: "SXWZ算力" })).toBeVisible();
+  await expect(page.getByRole("listbox", { name: "生成模型" }).locator(".el-select-group__title")).toHaveText(["SXWZ算力"]);
   await expect(page.getByRole("option", { name: "QwenImage2.0-Pro", exact: true })).toBeVisible();
   await page.getByRole("option", { name: "QwenImage2.0-Pro", exact: true }).click();
   await expect(generatorNode.getByText("步数", { exact: true })).toBeVisible();
@@ -153,15 +153,15 @@ test("任务失败时展示错误通知且页面保持可操作", async ({ page,
 });
 
 test("无效模板显示字段诊断且页面保持可操作", async ({ page, request }) => {
-  let pageLoads = 0;
-  page.on("load", () => pageLoads++);
   await openLinuxDevWorkspace(page);
   await loginSuanli(page);
   await createFreshCanvas(page, "E2E无效模板");
   const generatorNode = await addImageGenerationNode(page);
   await setSxwzScenario(request, { templateMode: "invalid" });
+  let pageLoads = 0;
+  page.on("load", () => pageLoads++);
 
-  const modelRef = `ai_painting_talk:${invalidTemplateModelId}`;
+  const modelRef = `toonflow:${invalidTemplateModelId}`;
   const templateResponse = page.waitForResponse(response => {
     const url = new URL(response.url());
     return url.pathname === "/api/ai/media/template" && url.searchParams.get("modelRef") === modelRef;
@@ -179,19 +179,19 @@ test("无效模板显示字段诊断且页面保持可操作", async ({ page, re
   expect(log).not.toContain("e2e-hidden-default-should-not-enter-diagnostics");
   await page.locator(".workspaceMenu").getByRole("button", { name: /设置/ }).click();
   await expect(page.getByRole("dialog", { name: "设置" })).toBeVisible();
-  expect(pageLoads).toBe(1);
+  expect(pageLoads).toBe(0);
 });
 
 test("模板超时写入持久化诊断，节点错误后页面仍可操作", async ({ page, request }) => {
-  let pageLoads = 0;
-  page.on("load", () => pageLoads++);
   await openLinuxDevWorkspace(page);
   await loginSuanli(page);
   await createFreshCanvas(page, "E2E模板超时");
   const generatorNode = await addImageGenerationNode(page);
   await setSxwzScenario(request, { templateMode: "timeout" });
+  let pageLoads = 0;
+  page.on("load", () => pageLoads++);
 
-  const modelRef = `ai_painting_talk:${timeoutTemplateModelId}`;
+  const modelRef = `toonflow:${timeoutTemplateModelId}`;
   const templateResponse = page.waitForResponse(response => {
     const url = new URL(response.url());
     return url.pathname === "/api/ai/media/template" && url.searchParams.get("modelRef") === modelRef;
@@ -207,5 +207,5 @@ test("模板超时写入持久化诊断，节点错误后页面仍可操作", as
   expect(log).not.toContain("e2e-token-only");
   await page.locator(".workspaceMenu").getByRole("button", { name: /设置/ }).click();
   await expect(page.getByRole("dialog", { name: "设置" })).toBeVisible();
-  expect(pageLoads).toBe(1);
+  expect(pageLoads).toBe(0);
 });
