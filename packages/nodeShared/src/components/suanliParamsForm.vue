@@ -4,7 +4,7 @@
     <div v-else-if="loadError" class="formError" role="alert">{{ loadError }}</div>
     <template v-else>
       <el-form v-if="visibleParams.length" class="paramsForm" labelPosition="top">
-        <el-form-item v-for="field in visibleParams" :key="field.name" :label="field.label" :required="field.required">
+        <el-form-item v-for="field in visibleParams" :key="field.name" :label="field.label" :required="field.required && !referenceSatisfiesPrompt(field)">
           <el-input
             v-if="field.ui === 'textarea'"
             :modelValue="stringValue(field.name)"
@@ -83,6 +83,7 @@ const loading = ref(false);
 const loadError = ref("");
 const values = reactive<Record<string, unknown>>({});
 const loadController = ref<AbortController>();
+let templateRequest: Promise<void> = Promise.resolve();
 const visibleParams = computed(() => template.value?.params.filter(field => field.ui !== "hidden" && field.ui !== "imageUpload" && isVisible(field)) ?? []);
 
 function copyValues(source: Record<string, unknown>) {
@@ -150,15 +151,19 @@ function setValue(name: string, value: unknown) {
   emitValues();
 }
 
+function referenceSatisfiesPrompt(field: SuanliMediaParam) {
+  return field.ui === "textarea" && field.name === "prompt" && !!props.referenceText?.trim();
+}
+
 function validateField(field: SuanliMediaParam) {
   const value = values[field.name];
   if (field.ui === "hidden" || field.ui === "imageUpload") return undefined;
   if (value === undefined || value === "") {
-    if (field.required) throw new Error(`请填写${field.label}`);
+    if (field.required && !referenceSatisfiesPrompt(field)) throw new Error(`请填写${field.label}`);
     return undefined;
   }
   if (field.ui === "textarea") {
-    if (typeof value !== "string" || value.length > (field.maxLength ?? 20000) || (field.required && !value.trim())) throw new Error(`${field.label}无效`);
+    if (typeof value !== "string" || value.length > (field.maxLength ?? 20000) || (field.required && !value.trim() && !referenceSatisfiesPrompt(field))) throw new Error(`${field.label}无效`);
   } else if (field.ui === "switch") {
     if (typeof value !== "boolean") throw new Error(`${field.label}无效`);
   } else if (field.ui === "number") {
@@ -196,6 +201,12 @@ function getValues() {
   return result;
 }
 
+async function waitUntilReady() {
+  await templateRequest;
+  if (loadError.value) throw new Error(loadError.value);
+  if (!template.value) throw new Error("模型参数尚未就绪");
+}
+
 async function loadTemplate(modelRef: string, signal: AbortSignal) {
   loading.value = true;
   loadError.value = "";
@@ -216,11 +227,11 @@ watch(() => props.modelRef, modelRef => {
   const controller = new AbortController();
   loadController.value?.abort();
   loadController.value = controller;
-  void loadTemplate(modelRef, controller.signal);
+  templateRequest = loadTemplate(modelRef, controller.signal);
 }, { immediate: true });
 
 onScopeDispose(() => loadController.value?.abort());
-defineExpose({ getValues, template });
+defineExpose({ getValues, template, waitUntilReady });
 </script>
 
 <style scoped lang="scss">

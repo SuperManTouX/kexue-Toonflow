@@ -355,6 +355,10 @@ async function startGeneration() {
   const choice = selectedModel.value;
   if (!choice || !input) throw new Error("请先选择图片模型");
   if (choice.providerId === "suanli") {
+    await nextTick();
+    const form = suanliForm.value;
+    if (!form) throw new Error("算力模型参数表单尚未就绪");
+    await form.waitUntilReady();
     if (!suanliReady.value) throw new Error("当前算力模型不支持图片引用、局部重绘或当前参数模板");
     const values = suanliForm.value?.getValues();
     if (!values || typeof values.prompt !== "string" || !values.prompt.trim()) throw new Error("请输入生成提示词");

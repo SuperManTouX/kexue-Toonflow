@@ -43,7 +43,6 @@ export function supportsSuanliImageReferences(
   if (!uploadParams.length) return referenceCount === 0;
   if (uploadParams.length !== 1) return false;
   const param = uploadParams[0]!;
-  if (param.name !== "imageUrls") return false;
   const paramsByName = new Map(template.params.map(field => [field.name, field]));
   if (!isSuanliParamVisible(param, paramsByName, values)) return referenceCount === 0;
   return referenceCount <= param.maxCount

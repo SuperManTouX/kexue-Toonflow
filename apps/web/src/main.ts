@@ -1,3 +1,4 @@
+import "@/lib/cryptoCompat";
 import { appFetch } from "@/lib/auth";
 import { initializeAuth, AuthRequiredError } from "@/lib/auth";
 import { createApp, h, nextTick, ref } from "vue";

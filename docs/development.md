@@ -76,7 +76,7 @@ bun install
 bun run dev
 ```
 
-Linux 下 `dev` 会通过浏览器启动桌面桥接联调模式，并使用 `data/workspaces/linuxDevWorkspace`；Windows 和 macOS 启动原生桌面应用。Linux 首次使用或修改插件后，可先运行 `bun run dev:plugins` 同步插件。若需单独启动普通 Web/Server 联调栈，在 Linux/macOS 运行 `EXTERNAL_TOKEN_VERIFICATION_URL=https://sxwz.xueai.art/api/login/validateToken bun scripts/devStack.ts`；PowerShell 可先设置 `$env:EXTERNAL_TOKEN_VERIFICATION_URL`，再运行 `bun scripts/devStack.ts`。该模式打开 `http://localhost:5173`，Server 默认监听 `3000`。
+Linux 下 `dev` 会通过浏览器启动桌面桥接联调模式，并使用 `data/workspaces/linuxDevWorkspace`；启动时会自动构建并同步内置节点和 Agent 工具，无需另行运行 `bun run dev:plugins`。Windows 和 macOS 启动原生桌面应用。若需单独启动普通 Web/Server 联调栈，在 Linux/macOS 运行 `EXTERNAL_TOKEN_VERIFICATION_URL=https://sxwz.xueai.art/api/login/validateToken bun scripts/devStack.ts`；PowerShell 可先设置 `$env:EXTERNAL_TOKEN_VERIFICATION_URL`，再运行 `bun scripts/devStack.ts`。该模式打开 `http://localhost:5173`，Server 默认监听 `3000`。
 
 **从局域网访问 Linux 桌面开发页**
 

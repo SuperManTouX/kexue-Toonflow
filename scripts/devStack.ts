@@ -37,6 +37,21 @@ for (const extension of extensions) {
     .env({ ...process.env, NODE_ENV: "dev" });
 }
 
+if (desktopMode && process.platform === "linux") {
+  for (const pluginType of ["nodes", "tools"]) {
+    const pluginDirectory = resolve(appDirectory, "packages", pluginType);
+    const plugins = (await readdir(pluginDirectory, { withFileTypes: true }))
+      .filter(entry => entry.isDirectory())
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const plugin of plugins) {
+      console.log(`构建内置${pluginType === "nodes" ? "节点" : "Agent 工具"}：${plugin.name}`);
+      await $`${process.execPath} run build`
+        .cwd(resolve(pluginDirectory, plugin.name))
+        .env({ ...process.env, NODE_ENV: "dev" });
+    }
+  }
+}
+
 const services = [
   { name: "Web", directory: resolve(import.meta.dirname, "../apps/web"), environment: { TOONFLOW_DEV_WEB_PORT: webPort, TOONFLOW_DEV_SERVER_PORT: serverPort } },
   { name: "Server", directory: resolve(import.meta.dirname, "../apps/server"), environment: { TOONFLOW_DEV_SERVER_PORT: serverPort } },

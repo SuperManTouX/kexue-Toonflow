@@ -144,12 +144,6 @@ function suanliImageReferences(mediaType: "image" | "video", request: MediaGener
   return [request.firstFrame, request.lastFrame].filter((item): item is MediaReference => item !== undefined);
 }
 
-function imageUploadBinding(modelRef: string, template: SuanliMediaTemplate, param: Extract<SuanliMediaParam, { ui: "imageUpload" }>) {
-  if (!modelRef.endsWith(`:${template.modelId}`)) return undefined;
-  if (param.name === "imageUrls") return "images";
-  return undefined;
-}
-
 async function prepareSuanliImageUploads(
   directory: string,
   mediaType: "image" | "video",
@@ -167,7 +161,7 @@ async function prepareSuanliImageUploads(
   }
   if (uploadParams.length !== 1) invalid("当前算力模型包含无法安全映射的多个图片上传字段");
   const param = uploadParams[0]!;
-  if (imageUploadBinding(modelRef, template, param) !== "images") invalid(`模型参数 ${param.name} 的图片映射尚未确认`);
+  if (!modelRef.endsWith(`:${template.modelId}`)) invalid("当前算力模型参数模板与图片引用不匹配");
   const emptyBody = buildSuanliTaskBody(template, request.suanliValues?.values ?? {}, {}, true);
   const isVisible = !param.showWhen || Object.entries(param.showWhen).every(([name, expected]) => Object.hasOwn(emptyBody, name) && Object.is(emptyBody[name], expected));
   if (!isVisible) {
@@ -210,6 +204,10 @@ async function prepareSuanliImageUploads(
     signal?.throwIfAborted();
     const image = await readReference(directory, file.reference, "image", signal, file.maxBytes, true);
     imageUrls.push(`data:${image.mimeType};base64,${image.data}`);
+  }
+  if (param.name === "imageUrl") {
+    if (imageUrls.length !== 1) invalid(`模型参数 ${param.name} 只接受一张图片`);
+    return { [param.name]: imageUrls[0]! };
   }
   return { [param.name]: imageUrls };
 }

@@ -227,7 +227,7 @@ export async function readSuanliMediaTemplate(modelRef: string) {
     ...(parsed.data.data.promptPlaceholder ? { promptPlaceholder: parsed.data.data.promptPlaceholder } : {}),
     params: parsed.data.data.params,
     canGenerate: parsed.data.data.inputType === "text"
-      || parsed.data.data.params.some(param => param.ui === "imageUpload" && param.name === "imageUrls"),
+      || parsed.data.data.params.some(param => param.ui === "imageUpload"),
   };
   const names = new Set<string>();
   for (const param of template.params) {
@@ -313,6 +313,13 @@ export function buildSuanliTaskBody(
       const uploaded = imageUploads[param.name];
       if (uploaded === undefined) {
         if (param.required && !allowMissingUploads) throw fail(`模型参数 ${param.name} 需要参考图片`, 400);
+        continue;
+      }
+      if (param.name === "imageUrl") {
+        if (typeof uploaded !== "string" || !/^data:image\/[a-z0-9.+-]+;base64,[a-zA-Z0-9+/]+={0,2}$/.test(uploaded)) {
+          throw fail(`模型参数 ${param.name} 的服务端图片数据无效`, 400);
+        }
+        body[param.name] = uploaded;
         continue;
       }
       if (!Array.isArray(uploaded) || uploaded.length > param.maxCount
