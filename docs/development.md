@@ -78,6 +78,18 @@ bun run dev
 
 Linux 下 `dev` 会通过浏览器启动桌面桥接联调模式，并使用 `data/workspaces/linuxDevWorkspace`；Windows 和 macOS 启动原生桌面应用。Linux 首次使用或修改插件后，可先运行 `bun run dev:plugins` 同步插件。若需单独启动普通 Web/Server 联调栈，在 Linux/macOS 运行 `EXTERNAL_TOKEN_VERIFICATION_URL=https://sxwz.xueai.art/api/login/validateToken bun scripts/devStack.ts`；PowerShell 可先设置 `$env:EXTERNAL_TOKEN_VERIFICATION_URL`，再运行 `bun scripts/devStack.ts`。该模式打开 `http://localhost:5173`，Server 默认监听 `3000`。
 
+**从局域网访问 Linux 桌面开发页**
+
+需要在同一局域网的其他电脑或手机中打开完整桌面开发页时，在 Linux 主机启动：
+
+```sh
+TOONFLOW_DEV_LAN=1 bun run dev
+```
+
+Vite 会打印可访问的 Network 地址。使用主机所在局域网的 IP 打开 `http://<linux-lan-ip>:5173/?desktop=1&linuxDevWorkspace=1`，并在主机防火墙放行 TCP `5173`。热更新通过同一个 Vite 地址与端口工作。默认 Server API 端口 `3000` 仍只监听回环地址，不需要也不能从局域网直连。
+
+启用后，能访问 Vite 端口且来源位于主机活动私有网络接口子网内的设备，都可以使用桌面 Host API 和 Linux 开发工作区；LAN 开发模式没有额外口令。只在确实需要时开启，并在结束后关闭开发服务。设备互联端口 `43123` 仅在开发页中开启共享后监听，关闭共享会停止该监听。此开关只支持 Linux 桌面桥接开发模式，不改变生产服务或已打包应用。
+
 ### 常用命令
 
 以下命令在仓库根目录执行：
