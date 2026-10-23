@@ -76,7 +76,6 @@ import { useWorkspaceStore, type Project } from "@/stores/workspace";
 import { isDesktop } from "@/lib/platform";
 import { hasDesktopUpdate } from "@/stores/desktopUpdate";
 import { deviceHubEnabled, mobileConnection, mobileConnectionLabel } from "@/lib/mobile";
-import useWorkspaceFiles from "@/lib/workspaceFiles";
 import settings from "@/components/settings/index.vue";
 import bg from "./bg.vue";
 import workspacePicker from "./workspacePicker.vue";
@@ -147,16 +146,27 @@ async function createProject() {
   if (creating.value || opening.value) return;
   creating.value = true;
   try {
-    const confirmed = await ElMessageBox.confirm("请选择一个空文件夹作为项目目录，画布和素材将保存在其中。", "添加项目", {
-      confirmButtonText: "选择空文件夹", cancelButtonText: "取消", type: "info",
-    }).then(() => true, () => false);
-    if (!confirmed) return;
-    const path = await relocationPicker.value?.chooseDirectory() ?? "";
-    if (!path) return;
-    const { directory, empty } = await useWorkspaceFiles(path).list();
-    if (!empty) return ElMessage.warning("该文件夹不为空，请重新选择空文件夹；已有项目请使用“导入项目”或点击项目列表打开。");
-    await useWorkspaceFiles(directory).writeJson("画布1.json", { toonflowCanvas: true, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } }, true);
-    await workspaceStore.openProject(directory);
+    const result = await ElMessageBox.prompt("请输入项目名称", "新建项目", {
+      inputPlaceholder: "项目名称",
+      confirmButtonText: "创建",
+      cancelButtonText: "取消",
+      inputValidator: value => {
+        const name = value?.trim() ?? "";
+        return !!name && name.length <= 80 && name !== "." && name !== ".."
+          && !/[<>:"/\\|?*\x00-\x1f]/.test(name) && !/[. ]$/.test(name)
+          && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)
+          && new TextEncoder().encode(name).length <= 240
+          || "请输入有效项目名称（最多 80 个字符，且不能使用系统保留格式）";
+      },
+    }).catch(() => null);
+    if (!result) return;
+    const { data } = await axios.post<{ code: number; data?: { directory: string }; message?: string }>(
+      "/api/workspaces/create",
+      { name: result.value.trim() },
+      { headers: { "x-toonflow-workspace": "1" } },
+    );
+    if (data.code !== 200 || !data.data?.directory) throw new Error(data.message || "创建项目失败，请重试");
+    await workspaceStore.openProject(data.data.directory);
     await router.push("/workspace");
   } catch (err) {
     ElMessage.error(axios.isAxiosError<{ message?: string }>(err)

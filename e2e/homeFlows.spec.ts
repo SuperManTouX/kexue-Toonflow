@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { basename, isAbsolute } from "node:path";
+import { openLinuxDevWorkspace } from "./e2eSupport";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/?desktop=1#/home");
@@ -80,4 +82,38 @@ test("项目可重命名并在刷新后保留", async ({ page }) => {
       // 清理失败时保留原始断言结果，避免覆盖重命名用例本身的问题。
     }
   }
+});
+
+test("新建项目输入名称后自动创建并展示绝对路径", async ({ page }) => {
+  await openLinuxDevWorkspace(page);
+  await page.goto("/?desktop=1#/home");
+
+  const projectName = "E2E自动创建项目";
+  await page.getByRole("button", { name: "添加项目" }).click();
+  const dialog = page.getByRole("dialog", { name: "新建项目" });
+  await dialog.getByRole("textbox", { name: "项目名称" }).fill(projectName);
+  const createResponse = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/workspaces/create" && response.request().method() === "POST";
+  });
+  await dialog.getByRole("button", { name: "创建", exact: true }).click();
+  const response = await createResponse;
+  expect(response.ok()).toBeTruthy();
+  const result = await response.json() as { data: { directory: string } };
+  const directory = result.data.directory;
+  expect(isAbsolute(directory)).toBeTruthy();
+  expect(basename(directory)).toBe(projectName);
+  await expect(page).toHaveURL(/#\/workspace$/);
+
+  await page.goto("/?desktop=1#/home");
+  const projectButton = page.getByRole("button", { name: "打开项目 " + projectName });
+  await expect(projectButton).toBeVisible();
+  const projectCard = page.locator(".projectCard").filter({ has: projectButton });
+  await expect(projectCard.locator(".projectPath")).toHaveText(directory);
+
+  const listingUrl = "/api/workspaces/files/list?directory=" + encodeURIComponent(directory);
+  const listingResponse = await page.request.get(new URL(listingUrl, page.url()).toString(), { headers: { "x-toonflow-workspace": "1" } });
+  expect(listingResponse.ok()).toBeTruthy();
+  const listing = await listingResponse.json() as { data: { entries: { name: string }[] } };
+  expect(listing.data.entries.map(entry => entry.name)).toContain("画布1.json");
 });
