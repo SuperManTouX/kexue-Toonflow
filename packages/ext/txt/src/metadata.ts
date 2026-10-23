@@ -8,7 +8,7 @@ export default {
     { type: "inputNumber", field: "fontSize", title: "字号", value: 14, props: { min: 10, max: 32, step: 1 } },
     { type: "switch", field: "wordWrap", title: "自动换行", value: true },
   ],
-  extensions: ["txt", "log", "json", "jsonc", "csv", "tsv", "yaml", "yml", "xml", "toml", "ini"],
+  extensions: ["txt", "log", "json", "jsonl", "jsonc", "csv", "tsv", "yaml", "yml", "xml", "toml", "ini"],
   resourceKind: "file",
   text: true,
 } satisfies Omit<ExtDefinition, "load">;

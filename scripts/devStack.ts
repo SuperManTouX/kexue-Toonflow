@@ -1,3 +1,5 @@
+import { $ } from "bun";
+import { readdir } from "@toonflow/file";
 import { resolve } from "node:path";
 
 const desktopMode = process.argv[2] === "desktop";
@@ -23,6 +25,17 @@ if (!desktopMode && !process.env.EXTERNAL_TOKEN_VERIFICATION_URL) {
 }
 
 if (desktopMode) console.log(`桌面端浏览器联调：http://127.0.0.1:${webPort}/?desktop=1${linuxDevWorkspaceDirectory ? "&linuxDevWorkspace=1" : ""}`);
+
+const extensionDirectory = resolve(appDirectory, "packages/ext");
+const extensions = (await readdir(extensionDirectory, { withFileTypes: true }))
+  .filter(entry => entry.isDirectory())
+  .sort((left, right) => left.name.localeCompare(right.name));
+for (const extension of extensions) {
+  console.log(`构建内置文件扩展：${extension.name}`);
+  await $`${process.execPath} run build`
+    .cwd(resolve(extensionDirectory, extension.name))
+    .env({ ...process.env, NODE_ENV: "dev" });
+}
 
 const services = [
   { name: "Web", directory: resolve(import.meta.dirname, "../apps/web"), environment: { TOONFLOW_DEV_WEB_PORT: webPort, TOONFLOW_DEV_SERVER_PORT: serverPort } },
