@@ -5,16 +5,15 @@ import getConfig from "@/utils/conf";
 import { getMobileLinkConfig, isMobileLinkRequest } from "@/utils/mobileLink";
 import { getRuntimePlatform } from "@/lib/platform";
 import { canManageHost } from "@/lib/userContext";
+import { isLocalDesktopHost } from "@/lib/localRequest";
 
 export function isLocalWorkspaceRequest(req: Request) {
   if (!canManageHost()) return false;
   if (isMobileLinkRequest(req)) return false;
-  const localAddress = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? "") && req.get("x-toonflow-local-client") !== "0";
-  const localHost = ["localhost", "127.0.0.1", "[::1]"].includes(req.hostname);
   const origin = req.get("origin");
   const localOrigin = `${req.protocol}://${req.get("host")}`;
   const sameOrigin = origin === undefined ? req.get("referer")?.startsWith(`${localOrigin}/`) : origin === localOrigin;
-  return localAddress && localHost && sameOrigin && req.get("x-toonflow-workspace") === "1";
+  return isLocalDesktopHost(req) && sameOrigin && req.get("x-toonflow-workspace") === "1";
 }
 
 export function canConfigureUser(req: Request) {

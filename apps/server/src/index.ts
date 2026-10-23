@@ -13,6 +13,10 @@ const fromSource = import.meta.path.endsWith(".ts");
 const appDirectory = resolve(import.meta.dirname, fromSource ? "../../.." : "../..");
 const dataDirectory = process.env.TOONFLOW_DATA_DIR ?? resolve(appDirectory, "data");
 const desktopWebDevelopment = process.env.NODE_ENV === "dev" && process.env.TOONFLOW_DEV_DESKTOP_WEB === "1";
+const devLanMode = process.env.TOONFLOW_DEV_LAN === "1";
+if (devLanMode && (!desktopWebDevelopment || process.platform !== "linux")) {
+  throw new Error("TOONFLOW_DEV_LAN=1 仅支持 NODE_ENV=dev 的 Linux 桌面桥接开发模式。");
+}
 if (desktopWebDevelopment) setRuntimeHost("desktop");
 const linuxDevWorkspaceDirectory = desktopWebDevelopment && process.platform === "linux"
   ? process.env.TOONFLOW_DEV_WORKSPACE_DIR ?? resolve(appDirectory, "data/workspaces/linuxDevWorkspace")
@@ -44,9 +48,11 @@ const app = await createApp({
 if (desktopWebDevelopment) app.locals.desktop = createLinuxDevRuntime(config.app.version);
 const { initializeMcpRuntime } = await import("./utils/mcp/runtime");
 const { startMobileLinkRuntime } = await import("./utils/mobileLink");
-app.listen(realPort, async () => {
+const onServerReady = async () => {
   await initializeMcpRuntime(app, `http://127.0.0.1:${realPort}`, resolve(appDirectory, fromSource ? "packages/mcp/src/stdio.ts" : "build/mcp/stdio.js"));
   if (canManageHost()) await startMobileLinkRuntime(app).catch(error => console.error("设备互联启动失败：", error));
   console.log(`[服务启动成功]: http://localhost:${realPort}`);
   console.log(`[启动耗时]: ${(Date.now() - startTime).toFixed(2)}ms`);
-});
+};
+if (devLanMode) app.listen(realPort, "127.0.0.1", onServerReady);
+else app.listen(realPort, onServerReady);

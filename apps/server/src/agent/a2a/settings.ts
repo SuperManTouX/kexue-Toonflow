@@ -7,6 +7,7 @@ import { getAppOrigin } from "@/utils/mcp/control";
 import { isWithin } from "@/utils/workspace/files";
 import { getRuntimePlatform } from "@/lib/platform";
 import { getCurrentUser, canManageHost } from "@/lib/userContext";
+import { isLocalDesktopHost } from "@/lib/localRequest";
 
 export type A2aSettings = {
   enabled: boolean;
@@ -54,7 +55,7 @@ export async function resolveA2aWorkspace(path = getA2aSettings().directory) {
 export function authenticateA2a(req: Request) {
   const { enabled, token } = getA2aSettings();
   if (!enabled || token.length < 32) return;
-  if (canManageHost() && getRuntimePlatform().requiresLocalHost && !["localhost", "127.0.0.1", "[::1]"].includes(req.hostname)) return;
+  if (canManageHost() && getRuntimePlatform().requiresLocalHost && !isLocalDesktopHost(req)) return;
   if (req.get("origin")) {
     try { getAppOrigin(req); } catch { return; }
   }

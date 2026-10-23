@@ -9,6 +9,7 @@ import { isAbsolute, posix } from "node:path";
 import { realpath, stat } from "@toonflow/file";
 import getConfig from "@/utils/conf";
 import { errorFromCause } from "@/lib/responseFormat";
+import { isLocalDesktopHost } from "@/lib/localRequest";
 
 export type MobileLinkConfig = {
   enabled: boolean;
@@ -47,9 +48,7 @@ export function isMobileLinkRequest(req: Request) {
 export function assertMobileLinkControl(req: Request) {
   const origin = `${req.protocol}://${req.get("host")}`;
   const sameOrigin = req.get("origin") === undefined ? req.get("referer")?.startsWith(`${origin}/`) : req.get("origin") === origin;
-  const localSocket = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? "");
-  const localHost = ["localhost", "127.0.0.1", "[::1]"].includes(req.hostname);
-  if (isMobileLinkRequest(req) || !localSocket || !localHost || !sameOrigin ||
+  if (isMobileLinkRequest(req) || !isLocalDesktopHost(req) || !sameOrigin ||
     (req.get("x-toonflow-mobile-link") !== "1" && req.get("x-toonflow-workspace") !== "1")) {
     throw Object.assign(new Error("只允许本机 Toonflow 页面管理设备互联"), { status: 403 });
   }

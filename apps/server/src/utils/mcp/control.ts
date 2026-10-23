@@ -5,6 +5,7 @@ import getConfig, { onConfigChange } from "@/utils/conf";
 import { isMobileLinkRequest } from "@/utils/mobileLink";
 import { getRuntimePlatform } from "@/lib/platform";
 import { getCurrentUser, canManageHost } from "@/lib/userContext";
+import { isLocalDesktopHost } from "@/lib/localRequest";
 
 export const controlStateSchema = z.object({
   directory: z.string().max(4096).nullable(),
@@ -33,7 +34,7 @@ export function getMcpSettings() {
 }
 
 function allowedHost(req: Request) {
-  return !canManageHost() || isMobileLinkRequest(req) || !getRuntimePlatform().requiresLocalHost || ["localhost", "127.0.0.1", "[::1]"].includes(req.hostname);
+  return !canManageHost() || isMobileLinkRequest(req) || !getRuntimePlatform().requiresLocalHost || isLocalDesktopHost(req);
 }
 
 export function getAppOrigin(req: Request) {
